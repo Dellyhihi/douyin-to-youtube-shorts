@@ -357,7 +357,22 @@
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
         <button class="btn btn-secondary" onclick="closeModal()">Huỷ</button>
         <button class="btn btn-primary" onclick="saveEdit()" id="save-edit-btn">💾 Lưu</button>
-      </div>
+<!-- ═══════════════════════════════════════ -->
+<!-- Video Preview Modal -->
+<!-- ═══════════════════════════════════════ -->
+<div class="modal-overlay" id="preview-modal">
+  <div class="modal" style="max-width: 600px; text-align: center;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="preview-title">🎬 Xem Video</h3>
+      <button class="modal-close" onclick="closePreview()">&times;</button>
+    </div>
+    <div style="padding: 16px 0;">
+      <video id="preview-video-player" controls autoplay style="max-width: 100%; max-height: 480px; border-radius: var(--radius-md); background: #000; outline: none;"></video>
+      <div id="preview-info" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
+    </div>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;">
+      <a id="preview-download-btn" href="#" download class="btn btn-primary">⬇️ Tải file MP4 về máy</a>
+      <button class="btn btn-secondary" onclick="closePreview()">Đóng</button>
     </div>
   </div>
 </div>

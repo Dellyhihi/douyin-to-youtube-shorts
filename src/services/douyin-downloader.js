@@ -5,74 +5,106 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const { DOWNLOADS_DIR, extractDouyinId } = require('../utils/helpers');
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-// Headers giả lập browser
+// ─── Browser Headers ─────────────────────────────────────────────────────────
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-  'Accept': '*/*',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
   'Accept-Encoding': 'gzip, deflate, br',
   'Connection': 'keep-alive',
   'Referer': 'https://www.douyin.com/',
 };
 
-// TikWM API (Miễn phí, hỗ trợ cả TikTok lẫn Douyin share link)
-const TIKWM_API = 'https://www.tikwm.com/api/';
-
-// ─── Method 1: TikWM API (Best - No cookie needed) ───────────────────────────
+// Cached TTWID cookie
+let cachedTtwid = null;
+let ttwidExpiry = 0;
 
 /**
- * Tải thông tin video qua TikWM API (miễn phí, không cần cookie)
- * Hỗ trợ: TikTok link, Douyin share link (v.douyin.com)
+ * Tự động tạo TTWID cookie miễn phí từ ByteDance
  */
-async function fetchViaTikWM(url) {
-  logger.info(`[TikWM] Fetching: ${url}`);
-
-  const formData = new URLSearchParams();
-  formData.append('url', url);
-  formData.append('hd', '1'); // Yêu cầu HD
-
-  const response = await axios.post(TIKWM_API, formData.toString(), {
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Referer': 'https://www.tikwm.com/',
-      'Origin': 'https://www.tikwm.com',
-    },
-    timeout: 20000,
-  });
-
-  if (!response.data || response.data.code !== 0) {
-    const msg = response.data?.msg || 'Unknown error';
-    throw new Error(`TikWM API lỗi: ${msg}`);
+async function getAutoTtwid() {
+  const now = Date.now();
+  if (cachedTtwid && now < ttwidExpiry) {
+    return cachedTtwid;
   }
 
-  const d = response.data.data;
-  if (!d) throw new Error('TikWM API không trả về data');
+  try {
+    const postData = {
+      region: 'cn',
+      aid: 1768,
+      needFid: 'false',
+      service: 'www.ixigua.com',
+      migrate_info: { ticket: '', src: 'ucdr' },
+      union: true,
+    };
 
-  // Ưu tiên: play (không watermark) → hdplay → wmplay
-  const videoUrl = d.play || d.hdplay || d.wmplay || null;
-  if (!videoUrl) throw new Error('Không tìm thấy URL video trong response TikWM');
+    const res = await axios.post('https://ttwid.bytedance.com/ttwid/union/register/', postData, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 8000,
+    });
 
-  return {
-    id: d.id || extractDouyinId(url) || uuidv4().slice(0, 15),
-    caption: d.title || '',
-    author: d.author?.nickname || d.author?.unique_id || 'Unknown',
-    videoUrl: videoUrl,
-    hdVideoUrl: d.hdplay || d.play || null,
-    coverUrl: d.cover || d.origin_cover || null,
-    duration: d.duration || 0,
-    width: 1080,   // TikWM không trả width/height, mặc định Shorts
-    height: 1920,
-    source: 'tikwm',
-  };
+    const setCookie = res.headers['set-cookie'] || [];
+    const match = setCookie.join(';').match(/ttwid=([^;]+)/);
+    if (match) {
+      cachedTtwid = match[1];
+      ttwidExpiry = now + 6 * 3600 * 1000; // Cache 6 hours
+      logger.info('Auto-generated TTWID cookie from ByteDance');
+      return cachedTtwid;
+    }
+  } catch (e) {
+    logger.warn(`Failed to auto-generate ttwid: ${e.message}`);
+  }
+
+  return process.env.DOUYIN_COOKIE || '';
 }
 
-// ─── Method 2: Direct Douyin Web API (Fallback - cần cookie) ─────────────────
+/**
+ * Trích xuất URL sạch từ bất kỳ dạng input nào:
+ *  - "5.87 06/04... 悟空队vs超人队 https://v.douyin.com/qLENPvwvgvw/ 复制此链接..."
+ *  - "https://www.douyin.com/video/7676331104857997940"
+ *  - "https://vm.tiktok.com/ZMhN8Bg6x/"
+ *  - "https://www.douyin.com/aweme/v1/play/?video_id=..."
+ */
+function extractCleanUrl(text) {
+  if (!text) return '';
+  text = text.trim();
+
+  // Nếu là URL trực tiếp
+  if (/^https?:\/\/\S+$/.test(text)) return text;
+
+  // Tìm tất cả các link http/https trong đoạn văn bản
+  const matches = [...text.matchAll(/https?:\/\/[^\s，,\u3000\u4e00-\u9fa5]+/g)].map(m => m[0]);
+  if (matches.length === 0) return text;
+
+  // Ưu tiên link Douyin / TikTok nếu có nhiều link
+  const priority = matches.find(u =>
+    u.includes('v.douyin.com') ||
+    u.includes('douyin.com') ||
+    u.includes('tiktok.com')
+  );
+
+  const chosen = priority || matches[0];
+  return chosen.replace(/[.,!?;:)\]>]+$/, '');
+}
 
 /**
- * Resolve short URL v.douyin.com → full URL
+ * Kiểm tra xem có phải URL stream trực tiếp (từ bot hoặc play API)
+ */
+function isDirectPlayUrl(url) {
+  if (!url) return false;
+  return (
+    url.includes('/aweme/v1/play') ||
+    url.includes('douyinvod.com') ||
+    url.includes('tiktokcdn') ||
+    url.includes('tiktokv.com') ||
+    url.includes('zjcdn.com') ||
+    /\/video\/tos\//i.test(url) ||
+    url.includes('mime_type=video')
+  );
+}
+
+/**
+ * Theo dõi chuyển hướng để lấy URL đích (v.douyin.com -> douyin.com/video/ID)
  */
 async function resolveShareUrl(shareUrl) {
   try {
@@ -82,313 +114,166 @@ async function resolveShareUrl(shareUrl) {
       validateStatus: s => s < 400,
       timeout: 10000,
     });
-    // Sau redirect, lấy URL cuối
     return response.request?.res?.responseUrl || response.config?.url || shareUrl;
   } catch (error) {
     if (error.response?.headers?.location) {
       return error.response.headers.location;
     }
-    // Trích URL từ text nếu được paste dạng share text
-    const urlMatch = shareUrl.match(/https?:\/\/[^\s，,]+/);
-    return urlMatch ? urlMatch[0] : shareUrl;
+    return shareUrl;
   }
 }
 
 /**
- * Tải thông tin video trực tiếp từ Douyin Web API
- * Cần có DOUYIN_COOKIE hợp lệ để dùng
+ * Phân tích video ID từ URL bất kỳ
  */
-async function fetchViaDouyinAPI(videoId, cookie) {
-  logger.info(`[Douyin API] Fetching video ID: ${videoId}`);
+function parseVideoId(url) {
+  if (!url) return null;
+  const patterns = [
+    /video\/(\d+)/,
+    /note\/(\d+)/,
+    /item_ids=(\d+)/,
+    /\/(\d{18,20})/,
+    /\/(\d{15,})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
 
-  const params = new URLSearchParams({
-    aweme_id: videoId,
-    aid: '6383',
-    version_name: '26.5.0',
-    device_platform: 'webapp',
-    os: 'windows',
+/**
+ * Method 1: Tải video Douyin bằng ByteDance TTWID + Web Detail API
+ */
+async function fetchDouyinDetail(videoId) {
+  const ttwid = await getAutoTtwid();
+  const detailUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=${videoId}&aid=1128&version_name=23.5.0&device_platform=webapp&os=windows`;
+
+  const cookieStr = ttwid.startsWith('ttwid=') ? ttwid : `ttwid=${ttwid};`;
+
+  const response = await axios.get(detailUrl, {
+    headers: {
+      ...BROWSER_HEADERS,
+      'Cookie': cookieStr,
+      'Referer': `https://www.douyin.com/video/${videoId}`,
+    },
+    timeout: 15000,
   });
 
-  const response = await axios.get(
-    `https://www.douyin.com/aweme/v1/web/aweme/detail/?${params}`,
-    {
-      headers: {
-        ...BROWSER_HEADERS,
-        'Cookie': cookie,
-        'Referer': `https://www.douyin.com/video/${videoId}`,
-      },
-      timeout: 15000,
-    }
-  );
-
-  if (!response.data?.aweme_detail) {
-    throw new Error('Douyin API không trả về aweme_detail. Cookie có thể hết hạn.');
+  const detail = response.data?.aweme_detail;
+  if (!detail) {
+    throw new Error('Douyin API không trả về aweme_detail');
   }
 
-  const detail = response.data.aweme_detail;
   const videoUrls = detail.video?.play_addr?.url_list || [];
-  const noWmUrls  = detail.video?.download_addr?.url_list || videoUrls;
-
-  // Chọn URL không watermark (replace playwm→play)
+  const noWmUrls = detail.video?.download_addr?.url_list || videoUrls;
   const videoUrl = (noWmUrls[0] || videoUrls[0] || '').replace('playwm', 'play');
 
-  if (!videoUrl) throw new Error('Không tìm thấy URL video trong Douyin API response');
+  if (!videoUrl) throw new Error('Không tìm thấy link stream video');
 
   return {
     id: videoId,
     caption: detail.desc || '',
-    author: detail.author?.nickname || 'Unknown',
+    author: detail.author?.nickname || 'Douyin Creator',
     videoUrl,
     hdVideoUrl: videoUrl,
     coverUrl: detail.video?.cover?.url_list?.[0] || null,
     duration: Math.round((detail.video?.duration || 0) / 1000),
     width: detail.video?.width || 1080,
     height: detail.video?.height || 1920,
-    source: 'douyin_api',
+    source: 'douyin_aweme_detail',
   };
 }
 
-// ─── Method 3: Douyin HTML Scrape (Last Resort) ───────────────────────────────
-
 /**
- * Parse video URL từ HTML của trang Douyin (không cần cookie)
+ * Method 2: TikWM API (cho TikTok hoặc fallback)
  */
-async function fetchViaHTMLScrape(videoId, cookie = '') {
-  logger.info(`[HTML Scrape] Fetching video ID: ${videoId}`);
+async function fetchViaTikWM(url) {
+  const formData = new URLSearchParams();
+  formData.append('url', url);
+  formData.append('hd', '1');
 
-  const pageUrl = `https://www.douyin.com/video/${videoId}`;
-  const response = await axios.get(pageUrl, {
+  const response = await axios.post('https://www.tikwm.com/api/', formData.toString(), {
     headers: {
-      ...BROWSER_HEADERS,
-      'Cookie': cookie,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': BROWSER_HEADERS['User-Agent'],
     },
     timeout: 15000,
   });
 
-  const html = response.data;
-
-  // Pattern 1: __NEXT_DATA__ JSON
-  const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-  if (nextDataMatch) {
-    try {
-      const data = JSON.parse(nextDataMatch[1]);
-      const aweme = findNestedValue(data, 'aweme_detail') || findNestedValue(data, 'awemeDetail');
-      if (aweme?.video?.play_addr?.url_list?.[0]) {
-        return buildInfoFromAweme(videoId, aweme, 'scrape_next');
-      }
-    } catch (e) { /* continue */ }
+  if (!response.data || response.data.code !== 0) {
+    throw new Error(`TikWM error: ${response.data?.msg || 'failed'}`);
   }
 
-  // Pattern 2: RENDER_DATA
-  const renderMatch = html.match(/<script id="RENDER_DATA"[^>]*>([\s\S]*?)<\/script>/);
-  if (renderMatch) {
-    try {
-      const decoded = decodeURIComponent(renderMatch[1]);
-      const data = JSON.parse(decoded);
-      const aweme = findNestedValue(data, 'aweme_detail') || findNestedValue(data, 'awemeDetail');
-      if (aweme?.video?.play_addr?.url_list?.[0]) {
-        return buildInfoFromAweme(videoId, aweme, 'scrape_render');
-      }
-    } catch (e) { /* continue */ }
-  }
-
-  // Pattern 3: Inline JSON với play_addr
-  const jsonMatches = html.matchAll(/"play_addr"\s*:\s*\{[^}]*"url_list"\s*:\s*\[(.*?)\]/gs);
-  for (const match of jsonMatches) {
-    try {
-      const urlList = JSON.parse('[' + match[1] + ']');
-      if (urlList[0]) {
-        return {
-          id: videoId,
-          caption: '',
-          author: 'Unknown',
-          videoUrl: urlList[0].replace('playwm', 'play'),
-          hdVideoUrl: urlList[0].replace('playwm', 'play'),
-          coverUrl: null,
-          duration: 0,
-          width: 1080,
-          height: 1920,
-          source: 'scrape_inline',
-        };
-      }
-    } catch (e) { /* continue */ }
-  }
-
-  throw new Error('Không thể trích xuất video URL từ trang HTML. Thử thêm cookie Douyin.');
-}
-
-function buildInfoFromAweme(videoId, aweme, source) {
-  const urlList = aweme.video?.play_addr?.url_list || [];
-  const dlList  = aweme.video?.download_addr?.url_list || urlList;
-  const videoUrl = (dlList[0] || urlList[0] || '').replace('playwm', 'play');
-
+  const d = response.data.data;
   return {
-    id: videoId,
-    caption: aweme.desc || '',
-    author: aweme.author?.nickname || 'Unknown',
-    videoUrl,
-    hdVideoUrl: videoUrl,
-    coverUrl: aweme.video?.cover?.url_list?.[0] || null,
-    duration: Math.round((aweme.video?.duration || 0) / 1000),
-    width: aweme.video?.width || 1080,
-    height: aweme.video?.height || 1920,
-    source,
+    id: d.id || parseVideoId(url) || uuidv4().slice(0, 15),
+    caption: d.title || '',
+    author: d.author?.nickname || 'TikTok Creator',
+    videoUrl: d.play || d.hdplay || d.wmplay,
+    hdVideoUrl: d.hdplay || d.play,
+    coverUrl: d.cover || d.origin_cover || null,
+    duration: d.duration || 0,
+    width: 1080,
+    height: 1920,
+    source: 'tikwm',
   };
 }
 
-function findNestedValue(obj, key, depth = 0) {
-  if (depth > 12 || !obj || typeof obj !== 'object') return null;
-  if (obj[key] !== undefined) return obj[key];
-  for (const k of Object.keys(obj)) {
-    const r = findNestedValue(obj[k], key, depth + 1);
-    if (r) return r;
-  }
-  return null;
-}
-
-// ─── Main: Orchestrator với nhiều fallback ────────────────────────────────────
-
 /**
- * Lấy thông tin video, thử nhiều cách theo thứ tự:
- * 1. TikWM API  (không cần cookie, hỗ trợ cả TikTok lẫn Douyin share link)
- * 2. Douyin Web API (cần cookie)
- * 3. HTML Scrape (fallback cuối)
+ * Lấy thông tin video đầy đủ từ link Douyin hoặc TikTok
  */
-async function getVideoInfo(url) {
-  // Làm sạch URL (trích URL từ share text nếu cần)
-  const cleanUrl = extractCleanUrl(url);
-  logger.info(`Processing URL: ${cleanUrl}`);
+async function getVideoInfo(rawUrl) {
+  const cleanUrl = extractCleanUrl(rawUrl);
+  logger.info(`Getting video info for: ${cleanUrl}`);
 
-  const cookie = process.env.DOUYIN_COOKIE || '';
-  const errors = [];
-
-  // ── Attempt 1: TikWM API ──────────────────────────────────────────────────
-  try {
-    const info = await fetchViaTikWM(cleanUrl);
-    logger.success(`[TikWM] ✓ Got video: "${info.caption}" by ${info.author}`);
-    return info;
-  } catch (err) {
-    errors.push(`TikWM: ${err.message}`);
-    logger.warn(`[TikWM] Failed: ${err.message}`);
-  }
-
-  // Resolve short URL nếu là v.douyin.com
-  let fullUrl = cleanUrl;
-  let videoId = extractDouyinId(cleanUrl);
-
-  if (!videoId || cleanUrl.includes('v.douyin.com') || cleanUrl.includes('vm.douyin.com')) {
+  // Nếu là link TikTok
+  if (cleanUrl.includes('tiktok.com')) {
     try {
-      fullUrl = await resolveShareUrl(cleanUrl);
-      logger.info(`Resolved to: ${fullUrl}`);
-      videoId = extractDouyinId(fullUrl) || videoId;
-    } catch (err) {
-      logger.warn(`Could not resolve URL: ${err.message}`);
+      return await fetchViaTikWM(cleanUrl);
+    } catch (e) {
+      logger.warn(`TikWM failed: ${e.message}`);
     }
   }
 
+  // 1. Resolve link ngắn (v.douyin.com -> douyin.com/video/ID)
+  let resolvedUrl = cleanUrl;
+  if (cleanUrl.includes('v.douyin.com') || cleanUrl.includes('vm.douyin.com')) {
+    resolvedUrl = await resolveShareUrl(cleanUrl);
+    logger.info(`Resolved Douyin URL: ${resolvedUrl}`);
+  }
+
+  // 2. Trích xuất video ID
+  const videoId = parseVideoId(resolvedUrl) || parseVideoId(cleanUrl);
   if (!videoId) {
-    throw new Error(`Không thể phân tích Video ID từ URL: ${cleanUrl}`);
+    throw new Error(`Không thể tìm thấy ID video từ link: ${cleanUrl}`);
   }
 
-  // ── Attempt 2: Douyin Web API (chỉ khi có cookie) ────────────────────────
-  if (cookie) {
-    try {
-      const info = await fetchViaDouyinAPI(videoId, cookie);
-      logger.success(`[Douyin API] ✓ Got video: "${info.caption}" by ${info.author}`);
-      return info;
-    } catch (err) {
-      errors.push(`Douyin API: ${err.message}`);
-      logger.warn(`[Douyin API] Failed: ${err.message}`);
-    }
-  } else {
-    logger.warn('[Douyin API] Skipped - DOUYIN_COOKIE not configured');
-  }
+  logger.info(`Extracted Douyin ID: ${videoId}`);
 
-  // ── Attempt 3: HTML Scrape ────────────────────────────────────────────────
+  // 3. Lấy thông tin & link không watermark qua Douyin API
   try {
-    const info = await fetchViaHTMLScrape(videoId, cookie);
-    logger.success(`[HTML Scrape] ✓ Got video URL via scraping`);
-    return info;
-  } catch (err) {
-    errors.push(`HTML Scrape: ${err.message}`);
-    logger.warn(`[HTML Scrape] Failed: ${err.message}`);
+    return await fetchDouyinDetail(videoId);
+  } catch (e) {
+    logger.warn(`Douyin detail failed: ${e.message}, trying TikWM fallback...`);
+    try {
+      return await fetchViaTikWM(cleanUrl);
+    } catch (e2) {
+      throw new Error(`Lỗi tải thông tin Douyin video (${videoId}): ${e.message}`);
+    }
   }
-
-  // ── All methods failed ────────────────────────────────────────────────────
-  const summary = errors.join(' | ');
-  throw new Error(
-    `Không thể tải video sau 3 cách thử.\n\nChi tiết lỗi:\n${errors.map((e, i) => `  ${i + 1}. ${e}`).join('\n')}\n\nGợi ý:\n- Kiểm tra lại link Douyin có đúng và video không bị xóa.\n- Thêm DOUYIN_COOKIE vào .env để cải thiện khả năng tải.`
-  );
 }
 
 /**
- * Kiểm tra xem URL có phải là link stream trực tiếp không
- * (từ bot Telegram, từ app Douyin, hoặc từ các tool tải khác)
- */
-function isDirectPlayUrl(url) {
-  if (!url) return false;
-  // Các pattern của direct stream URL Douyin / TikTok
-  return (
-    url.includes('/aweme/v1/play') ||
-    url.includes('douyinvod.com') ||
-    url.includes('tiktokcdn') ||
-    url.includes('tiktokv.com') ||
-    url.includes('v19-') ||
-    url.includes('v16-') ||
-    url.includes('v26-') ||
-    url.includes('v3-') ||
-    /\/video\/tos\//i.test(url) ||
-    // Dấu hiệu URL stream: có mime_type hoặc sign param
-    (url.includes('mime_type=video') || url.includes('sign='))
-  );
-}
-
-/**
- * Trích URL sạch từ share text Douyin / TikTok
- * Xử lý các dạng:
- *  - "5.87 06/04... https://v.douyin.com/xxx/ 复制此链接..."
- *  - "https://vm.tiktok.com/xxx"
- *  - URL trực tiếp
- */
-function extractCleanUrl(text) {
-  if (!text) return text;
-  text = text.trim();
-
-  // Nếu đã là URL đơn thuần
-  if (/^https?:\/\/\S+$/.test(text)) return text;
-
-  // Tìm tất cả URL trong text, ưu tiên lấy link Douyin/TikTok trước
-  const allUrls = [...text.matchAll(/https?:\/\/[^\s，,\u3000\u4e00-\u9fa5]+/g)].map(m => m[0]);
-
-  if (allUrls.length === 0) return text;
-
-  // Ưu tiên: v.douyin.com, vm.douyin.com, douyin.com, tiktok.com
-  const priority = allUrls.find(u =>
-    u.includes('v.douyin.com') ||
-    u.includes('vm.douyin.com') ||
-    u.includes('douyin.com') ||
-    u.includes('tiktok.com')
-  );
-
-  // Làm sạch URL (bỏ ký tự rác cuối - dấu chấm câu, ngoặc)
-  const clean = (u) => u.replace(/[.,!?;:)\]>]+$/, '');
-
-  return priority ? clean(priority) : clean(allUrls[0]);
-}
-
-// ─── Download File ────────────────────────────────────────────────────────────
-
-/**
- * Tải file video về máy
+ * Tải file video MP4 lưu vào thư mục downloads/
  */
 async function downloadVideoFile(videoUrl, videoId) {
-  if (!videoUrl) throw new Error('Không có URL video để tải');
+  if (!videoUrl) throw new Error('Không có URL stream để tải');
 
   const filename = `${videoId}_${Date.now()}.mp4`;
   const filepath = path.join(DOWNLOADS_DIR, filename);
 
-  logger.download(`Downloading: ${videoId}`);
-  logger.download(`URL: ${videoUrl.substring(0, 80)}...`);
+  logger.download(`Starting download for video ${videoId}...`);
 
   const response = await axios.get(videoUrl, {
     headers: {
@@ -419,11 +304,11 @@ async function downloadVideoFile(videoUrl, videoId) {
       console.log('');
       const stats = fs.statSync(filepath);
       if (stats.size < 10000) {
-        fs.unlinkSync(filepath);
-        reject(new Error('File tải về quá nhỏ (< 10KB). Có thể bị block hoặc URL hết hạn.'));
+        try { fs.unlinkSync(filepath); } catch (_) {}
+        reject(new Error('File tải về quá nhỏ (< 10KB), có thể link đã hết hạn'));
         return;
       }
-      logger.success(`Downloaded: ${filename} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+      logger.success(`Downloaded successfully: ${filename} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
       resolve({ path: filepath, filename, size: stats.size });
     });
 
@@ -434,81 +319,50 @@ async function downloadVideoFile(videoUrl, videoId) {
 
     response.data.on('error', err => {
       try { fs.unlinkSync(filepath); } catch (_) {}
-      reject(new Error(`Lỗi stream download: ${err.message}`));
+      reject(new Error(`Lỗi stream: ${err.message}`));
     });
   });
 }
 
-// ─── Main Public API ──────────────────────────────────────────────────────────
-
 /**
- * Pipeline đầy đủ: lấy info + tải file
- *
- * Hỗ trợ 3 dạng input:
- *  1. Share text từ app Douyin (có v.douyin.com nhúng trong text dài)
- *  2. Direct stream URL từ bot (aweme/v1/play, tiktokcdn, ...)
- *  3. URL thông thường (v.douyin.com, vm.tiktok.com, ...)
+ * Pipeline hoàn chỉnh xử lý bất kỳ link nào
  */
 async function processDouyinUrl(rawInput) {
-  // Bước 1: Trích URL sạch từ share text
   const cleanUrl = extractCleanUrl(rawInput);
-  logger.info(`Clean URL: ${cleanUrl}`);
 
-  // Bước 2: Nếu là direct play URL → tải thẳng, không cần getVideoInfo
+  // Trường hợp 1: Link direct stream URL (từ bot tele, vv.)
   if (isDirectPlayUrl(cleanUrl)) {
-    logger.info(`[Direct] Detected direct stream URL, downloading immediately`);
-
-    // Lấy video_id từ query param nếu có
-    let videoId;
+    logger.info(`[Direct] Direct stream link detected: ${cleanUrl.substring(0, 60)}...`);
+    let videoId = `direct_${Date.now()}`;
     try {
       const parsed = new URL(cleanUrl);
-      videoId = parsed.searchParams.get('video_id') ||
-                parsed.searchParams.get('vid') ||
-                `direct_${Date.now()}`;
-      // Làm sạch videoId (bỏ prefix dạng v0d00fg10000...)
-      videoId = videoId.replace(/^v[0-9a-f]+/, '').slice(0, 20) || `direct_${Date.now()}`;
-    } catch {
-      videoId = `direct_${Date.now()}`;
-    }
+      videoId = parsed.searchParams.get('video_id') || videoId;
+    } catch (_) {}
 
-    const downloadResult = await downloadVideoFile(cleanUrl, videoId);
+    const dl = await downloadVideoFile(cleanUrl, videoId);
     return {
       id: videoId,
-      caption: '',
-      author: 'Unknown',
+      caption: 'Video tải trực tiếp',
+      author: 'Direct Download',
       videoUrl: cleanUrl,
       hdVideoUrl: cleanUrl,
       coverUrl: null,
       duration: 0,
       width: 1080,
       height: 1920,
-      source: 'direct_play_url',
-      localPath: downloadResult.path,
-      fileSize: downloadResult.size,
+      localPath: dl.path,
+      fileSize: dl.size,
     };
   }
 
-  // Bước 3: URL thông thường → getVideoInfo rồi download
+  // Trường hợp 2: Link Douyin (share text, v.douyin.com, douyin.com/video/...) hoặc TikTok
   const info = await getVideoInfo(cleanUrl);
-
-  // Thử HD trước, fallback SD
-  let downloadResult;
-  const urlToTry = info.hdVideoUrl || info.videoUrl;
-  try {
-    downloadResult = await downloadVideoFile(urlToTry, info.id);
-  } catch (err) {
-    if (info.videoUrl && info.videoUrl !== urlToTry) {
-      logger.warn(`HD download failed, trying SD: ${err.message}`);
-      downloadResult = await downloadVideoFile(info.videoUrl, info.id);
-    } else {
-      throw err;
-    }
-  }
+  const dl = await downloadVideoFile(info.hdVideoUrl || info.videoUrl, info.id);
 
   return {
     ...info,
-    localPath: downloadResult.path,
-    fileSize: downloadResult.size,
+    localPath: dl.path,
+    fileSize: dl.size,
   };
 }
 
@@ -517,5 +371,6 @@ module.exports = {
   getVideoInfo,
   downloadVideoFile,
   extractCleanUrl,
+  parseVideoId,
   isDirectPlayUrl,
 };

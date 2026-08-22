@@ -223,18 +223,30 @@ async function loadVideos() {
       return;
     }
 
-    tbody.innerHTML = videos.map(v => `
+    tbody.innerHTML = videos.map(v => {
+      const videoFileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : null;
+      const videoFileUrl = videoFileName ? `/downloads/${videoFileName}` : null;
+      const displayTitle = v.title || v.original_caption || 'Video Douyin';
+
+      return `
       <tr data-id="${v.id}">
         <td><input type="checkbox" class="checkbox video-select" value="${v.id}" onchange="updateSelection()"></td>
         <td style="font-size: 12px; color: var(--text-muted);">${v.id}</td>
         <td class="video-title-cell">
-          <div class="video-title-text">${escapeHtml(v.title || v.original_caption || 'Chưa có tiêu đề')}</div>
-          <div class="video-url-text">${escapeHtml(v.douyin_url)}</div>
+          <div class="video-title-text" style="font-weight: 500;">
+            ${escapeHtml(displayTitle)}
+          </div>
+          <div class="video-url-text" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+            ${v.author ? '👤 ' + escapeHtml(v.author) + ' · ' : ''}${formatBytes(v.file_size || 0)}
+          </div>
+          <div class="video-url-text" style="font-size: 11px; color: var(--accent-primary); margin-top: 2px;">
+            ${escapeHtml(v.douyin_url)}
+          </div>
         </td>
         <td>${statusBadge(v.status)}</td>
         <td style="max-width: 200px;">
           <div style="font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            ${v.title ? '✅ Có caption' : '—'}
+            ${v.title ? '✅ ' + escapeHtml(v.title.substring(0, 35)) : '—'}
           </div>
         </td>
         <td>
@@ -244,17 +256,20 @@ async function loadVideos() {
         </td>
         <td>
           <div class="action-group">
-            ${v.status === 'pending' ? `<button class="btn btn-secondary btn-sm" onclick="actionDownload(${v.id})" title="Tải về">⬇️</button>` : ''}
-            ${v.status === 'downloaded' ? `<button class="btn btn-secondary btn-sm" onclick="actionGenerate(${v.id})" title="Tạo caption">🤖</button>` : ''}
-            ${v.status === 'ready' ? `<button class="btn btn-success btn-sm" onclick="actionUpload(${v.id})" title="Upload">📤</button>` : ''}
+            ${videoFileUrl ? `<button class="btn btn-primary btn-sm" onclick="openPreview('${videoFileUrl}', '${escapeHtml(displayTitle)}', '${formatBytes(v.file_size || 0)}')" title="Xem video">▶️ Xem</button>` : ''}
+            ${videoFileUrl ? `<a href="${videoFileUrl}" download="${videoFileName}" class="btn btn-secondary btn-sm" title="Lưu MP4 về máy" style="text-decoration:none; display:inline-flex; align-items:center;">💾 Lưu</a>` : ''}
+            ${v.status === 'pending' ? `<button class="btn btn-secondary btn-sm" onclick="actionDownload(${v.id})" title="Tải về">⬇️ Tải</button>` : ''}
+            ${v.status === 'downloaded' ? `<button class="btn btn-secondary btn-sm" onclick="actionGenerate(${v.id})" title="Tạo caption">🤖 AI</button>` : ''}
+            ${v.status === 'ready' ? `<button class="btn btn-success btn-sm" onclick="actionUpload(${v.id})" title="Upload">📤 Up</button>` : ''}
             ${['downloaded', 'ready', 'failed'].includes(v.status) ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${v.id})" title="Chỉnh sửa">✏️</button>` : ''}
             ${v.status === 'failed' ? `<button class="btn btn-secondary btn-sm" onclick="retryVideo(${v.id})" title="Thử lại">🔄</button>` : ''}
             <button class="btn btn-secondary btn-sm" onclick="actionDelete(${v.id})" title="Xoá">🗑️</button>
           </div>
-          ${v.error_message ? `<div style="font-size: 11px; color: var(--status-failed); margin-top: 4px;">${escapeHtml(v.error_message.substring(0, 80))}</div>` : ''}
+          ${v.error_message ? `<div style="font-size: 11px; color: var(--status-failed); margin-top: 4px;">${escapeHtml(v.error_message.substring(0, 100))}</div>` : ''}
         </td>
       </tr>
-    `).join('');
+      `;
+    }).join('');
 
     updateBatchBar();
   } catch (err) {
@@ -580,12 +595,46 @@ function statusBadge(status) {
   </span>`;
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
+
+// ─── Video Preview Modal ───
+function openPreview(videoUrl, title, sizeStr) {
+  const modal = document.getElementById('preview-modal');
+  const player = document.getElementById('preview-video-player');
+  const titleEl = document.getElementById('preview-title');
+  const infoEl = document.getElementById('preview-info');
+  const downloadBtn = document.getElementById('preview-download-btn');
+
+  if (!modal || !player) return;
+
+  titleEl.textContent = `🎬 ${title || 'Xem Video'}`;
+  infoEl.textContent = `Dung lượng: ${sizeStr || 'N/A'}`;
+  player.src = videoUrl;
+  downloadBtn.href = videoUrl;
+  downloadBtn.setAttribute('download', videoUrl.split('/').pop() || 'video.mp4');
+
+  modal.classList.add('active');
+  player.play().catch(() => {});
+}
+
+function closePreview() {
+  const modal = document.getElementById('preview-modal');
+  const player = document.getElementById('preview-video-player');
+  if (player) {
+    player.pause();
+    player.src = '';
+  }
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
