@@ -4,6 +4,8 @@ const Video = require('../models/video');
 const jobQueue = require('../services/job-queue');
 const youtubeUploader = require('../services/youtube-uploader');
 const thumbnailGen = require('../services/thumbnail-generator');
+const { extractCleanUrl } = require('../services/douyin-downloader');
+const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 
@@ -46,10 +48,10 @@ router.get('/videos', (req, res) => {
       videos = Video.getAll(limit, offset);
     }
 
-    // Parse tags from JSON string
+    // tags is already an array in JSON DB; ensure it's always an array
     videos = videos.map(v => ({
       ...v,
-      tags: (() => { try { return JSON.parse(v.tags || '[]'); } catch { return []; } })(),
+      tags: Array.isArray(v.tags) ? v.tags : (() => { try { return JSON.parse(v.tags || '[]'); } catch { return []; } })(),
     }));
 
     res.json({ success: true, data: videos });
@@ -64,7 +66,9 @@ router.get('/videos/:id', (req, res) => {
     const video = Video.getById(req.params.id);
     if (!video) return res.status(404).json({ success: false, error: 'Video not found' });
 
-    video.tags = (() => { try { return JSON.parse(video.tags || '[]'); } catch { return []; } })();
+    video.tags = Array.isArray(video.tags) ? video.tags : (() => {
+      try { return JSON.parse(video.tags || '[]'); } catch { return []; }
+    })();
     res.json({ success: true, data: video });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -85,9 +89,12 @@ router.post('/videos/add', (req, res) => {
       const trimmed = url.trim();
       if (!trimmed) continue;
 
-      // Extract URL from share text if needed
-      const urlMatch = trimmed.match(/https?:\/\/[^\s]+/);
-      const cleanUrl = urlMatch ? urlMatch[0] : trimmed;
+      // Extract clean URL from share text (e.g. "Xem video này... https://v.douyin.com/xxx")
+      const cleanUrl = extractCleanUrl(trimmed);
+      if (!cleanUrl || !cleanUrl.startsWith('http')) {
+        logger.warn(`Skipping invalid URL: ${trimmed}`);
+        continue;
+      }
 
       const video = Video.create({ douyin_url: cleanUrl });
       added.push(video);

@@ -141,7 +141,7 @@ class JobQueue {
       status: 'ready',
       title: captionResult.title,
       description: captionResult.description,
-      tags: JSON.stringify(captionResult.tags || []),
+      tags: captionResult.tags || [],
       category: captionResult.category || 'Entertainment',
       thumbnail_path: thumbnailPath,
     });
@@ -166,7 +166,7 @@ class JobQueue {
 
     Video.update(videoId, { status: 'uploading' });
 
-    const tags = (() => {
+    const tags = Array.isArray(video.tags) ? video.tags : (() => {
       try { return JSON.parse(video.tags || '[]'); } catch { return []; }
     })();
 
