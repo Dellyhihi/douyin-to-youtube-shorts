@@ -173,20 +173,21 @@ function renderGallery(videos) {
 }
 
 function renderGridCard(v) {
-  const fileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : '';
-  const videoUrl = fileName ? `/downloads/${fileName}` : null;
+  const isLocal = v.local_path;
+  const fileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : `douyin_${v.id}.mp4`;
+  const videoUrl = isLocal ? `/downloads/${fileName}` : `/api/videos/${v.id}/stream`;
+  const downloadUrl = isLocal ? `/downloads/${fileName}` : `/api/videos/${v.id}/stream?download=1`;
   const displayTitle = v.title || v.original_caption || 'Video Douyin không logo';
   const durationStr = formatDuration(v.duration || 0);
-  const sizeStr = formatBytes(v.file_size || 0);
+  const sizeStr = v.file_size ? formatBytes(v.file_size) : (v.duration ? `${v.duration}s` : 'HD');
   const dateStr = formatDate(v.created_at);
 
-  const statusText = v.status === 'downloading' ? '⏳ Đang tải...' :
-                     v.status === 'failed' ? '❌ Thất bại' : '✅ Đã xóa logo';
+  const statusText = v.status === 'failed' ? '❌ Thất bại' : '✅ Đã xóa logo';
 
   return `
   <div class="video-card" data-id="${v.id}">
     <div class="card-media" onclick="openVideoPlayer(${v.id})">
-      ${videoUrl ? `<video src="${videoUrl}#t=0.5" preload="metadata"></video>` : `<div style="background:#1e293b;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;">🎬</div>`}
+      ${v.cover_url ? `<img src="${v.cover_url}" alt="Cover" loading="lazy">` : (videoUrl ? `<video src="${videoUrl}#t=0.5" preload="metadata"></video>` : `<div style="background:#1e293b;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;">🎬</div>`)}
       
       <div class="play-overlay">
         <div class="play-badge-icon">▶</div>
@@ -206,8 +207,8 @@ function renderGridCard(v) {
       </div>
 
       <div class="card-actions">
-        ${videoUrl ? `<button class="btn btn-primary btn-sm" onclick="openVideoPlayer(${v.id})">▶️ Xem</button>` : ''}
-        ${videoUrl ? `<a href="${videoUrl}" download="${fileName}" class="btn btn-secondary btn-sm" title="Lưu MP4 về máy">💾 Lưu</a>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="openVideoPlayer(${v.id})">▶️ Xem</button>
+        <a href="${downloadUrl}" download="${fileName}" class="btn btn-secondary btn-sm" title="Lưu MP4 về máy">💾 Lưu</a>
         <button class="btn btn-ghost btn-sm" onclick="deleteVideoItem(${v.id})" title="Xoá video">🗑️</button>
       </div>
     </div>
@@ -216,8 +217,10 @@ function renderGridCard(v) {
 }
 
 function renderTableRow(v, i) {
-  const fileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : '';
-  const videoUrl = fileName ? `/downloads/${fileName}` : null;
+  const isLocal = v.local_path;
+  const fileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : `douyin_${v.id}.mp4`;
+  const videoUrl = isLocal ? `/downloads/${fileName}` : `/api/videos/${v.id}/stream`;
+  const downloadUrl = isLocal ? `/downloads/${fileName}` : `/api/videos/${v.id}/stream?download=1`;
   const displayTitle = v.title || v.original_caption || 'Video Douyin không logo';
 
   return `
@@ -230,13 +233,13 @@ function renderTableRow(v, i) {
       <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(v.douyin_url)}</div>
     </td>
     <td>${escapeHtml(v.author || 'Douyin Creator')}</td>
-    <td>${formatBytes(v.file_size || 0)}</td>
+    <td>${v.file_size ? formatBytes(v.file_size) : 'HD'}</td>
     <td>${formatDuration(v.duration || 0)}</td>
     <td style="color:var(--text-muted); font-size:12px;">${formatDate(v.created_at)}</td>
     <td>
       <div style="display:flex; gap:6px;">
-        ${videoUrl ? `<button class="btn btn-primary btn-sm" onclick="openVideoPlayer(${v.id})">▶️ Xem</button>` : ''}
-        ${videoUrl ? `<a href="${videoUrl}" download="${fileName}" class="btn btn-secondary btn-sm">💾 Lưu</a>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="openVideoPlayer(${v.id})">▶️ Xem</button>
+        <a href="${downloadUrl}" download="${fileName}" class="btn btn-secondary btn-sm">💾 Lưu</a>
         <button class="btn btn-ghost btn-sm" onclick="deleteVideoItem(${v.id})">🗑️</button>
       </div>
     </td>
@@ -254,10 +257,12 @@ function setViewMode(mode) {
 // ─── Video Modal Player ───
 function openVideoPlayer(id) {
   const video = allVideos.find(v => v.id === id);
-  if (!video || !video.local_path) return;
+  if (!video) return;
 
-  const fileName = video.local_path.split(/[/\\\\]/).pop();
-  const videoUrl = `/downloads/${fileName}`;
+  const isLocal = video.local_path;
+  const fileName = video.local_path ? video.local_path.split(/[/\\\\]/).pop() : `douyin_${video.id}.mp4`;
+  const videoUrl = isLocal ? `/downloads/${fileName}` : `/api/videos/${video.id}/stream`;
+  const downloadUrl = isLocal ? `/downloads/${fileName}` : `/api/videos/${video.id}/stream?download=1`;
   const displayTitle = video.title || video.original_caption || 'Video Douyin không logo';
 
   const modal = document.getElementById('video-modal');
@@ -266,12 +271,12 @@ function openVideoPlayer(id) {
 
   document.getElementById('modal-video-title').textContent = `🎬 ${displayTitle}`;
   document.getElementById('modal-author').textContent = video.author || 'Douyin Creator';
-  document.getElementById('modal-size').textContent = formatBytes(video.file_size || 0);
+  document.getElementById('modal-size').textContent = video.file_size ? formatBytes(video.file_size) : '1080p HD';
   document.getElementById('modal-duration').textContent = formatDuration(video.duration || 0);
   document.getElementById('modal-caption').textContent = video.original_caption || displayTitle;
 
   player.src = videoUrl;
-  downloadBtn.href = videoUrl;
+  downloadBtn.href = downloadUrl;
   downloadBtn.setAttribute('download', fileName);
 
   modal.classList.add('active');
