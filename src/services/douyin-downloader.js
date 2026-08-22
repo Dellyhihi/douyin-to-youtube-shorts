@@ -165,11 +165,31 @@ async function fetchDouyinDetail(videoId) {
     throw new Error('Douyin API không trả về aweme_detail');
   }
 
-  const videoUrls = detail.video?.play_addr?.url_list || [];
-  const noWmUrls = detail.video?.download_addr?.url_list || videoUrls;
-  const videoUrl = (noWmUrls[0] || videoUrls[0] || '').replace('playwm', 'play');
+  // Strictly pick clean play_addr streams (NEVER download_addr which contains watermark=1)
+  const bitRates = detail.video?.bit_rate || [];
+  const playUrls = detail.video?.play_addr?.url_list || [];
 
+  let candidateUrls = [];
+  // Add highest bitrate play_addr streams
+  for (const b of bitRates) {
+    if (b.play_addr?.url_list) {
+      candidateUrls.push(...b.play_addr.url_list);
+    }
+  }
+  // Add standard play_addr
+  candidateUrls.push(...playUrls);
+
+  // Filter out any watermarked URLs
+  const cleanUrls = candidateUrls.filter(u => !u.includes('watermark=1') && !u.includes('logo_name='));
+
+  let videoUrl = cleanUrls[0] || candidateUrls[0];
   if (!videoUrl) throw new Error('Không tìm thấy link stream video');
+
+  // Strip any watermark artifacts if present
+  videoUrl = videoUrl
+    .replace('playwm', 'play')
+    .replace(/&watermark=\d+/g, '')
+    .replace(/&logo_name=[^&]+/g, '');
 
   return {
     id: videoId,
