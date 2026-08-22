@@ -281,7 +281,9 @@ async function downloadVideoFile(videoUrl, videoId) {
       'Range': 'bytes=0-',
     },
     responseType: 'stream',
-    timeout: 120000,
+    timeout: 300000,
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
     maxRedirects: 10,
   });
 
