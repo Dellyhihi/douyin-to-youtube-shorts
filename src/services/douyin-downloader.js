@@ -104,17 +104,24 @@ function isDirectPlayUrl(url) {
 }
 
 /**
- * Theo dõi chuyển hướng để lấy URL đích (v.douyin.com -> douyin.com/video/ID)
+ * Theo dõi chuyển hướng để lấy URL đích (v.douyin.com -> iesdouyin.com/share/video/ID)
+ * Uses Dalvik/Android UA which triggers a clean redirect containing the video ID
+ * Works on all IPs including Vercel serverless
  */
 async function resolveShareUrl(shareUrl) {
   try {
     const response = await axios.get(shareUrl, {
-      headers: BROWSER_HEADERS,
+      headers: {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 14; Pixel 8 Build/UQ1A.240205.004)',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      },
       maxRedirects: 5,
-      validateStatus: s => s < 400,
-      timeout: 10000,
+      validateStatus: () => true, // Accept all status codes
+      timeout: 12000,
     });
-    return response.request?.res?.responseUrl || response.config?.url || shareUrl;
+    const finalUrl = response.request?.res?.responseUrl || response.config?.url || shareUrl;
+    return finalUrl;
   } catch (error) {
     if (error.response?.headers?.location) {
       return error.response.headers.location;
@@ -124,16 +131,17 @@ async function resolveShareUrl(shareUrl) {
 }
 
 /**
- * Phân tích video ID từ URL bất kỳ
+ * Phân tích video ID từ URL bất kỳ (incl. iesdouyin.com/share/video/ID)
  */
 function parseVideoId(url) {
   if (!url) return null;
   const patterns = [
-    /video\/(\d+)/,
-    /note\/(\d+)/,
-    /item_ids=(\d+)/,
-    /\/(\d{18,20})/,
-    /\/(\d{15,})/,
+    /share\/video\/(\d+)/,      // iesdouyin.com/share/video/ID (Dalvik redirect)
+    /video\/(\d+)/,             // douyin.com/video/ID
+    /note\/(\d+)/,              // douyin.com/note/ID
+    /item_ids=(\d+)/,           // query param
+    /\/(\d{18,20})/,            // 18-20 digit ID in path
+    /\/(\d{15,})/,              // 15+ digit ID in path
   ];
   for (const p of patterns) {
     const m = url.match(p);
@@ -242,28 +250,25 @@ async function fetchViaTikWM(url) {
 
 /**
  * Lấy thông tin video đầy đủ từ link Douyin hoặc TikTok
+ * Uses Dalvik UA for short-link resolution (works on all IPs including Vercel)
  */
 async function getVideoInfo(rawUrl) {
   const cleanUrl = extractCleanUrl(rawUrl);
   logger.info(`Getting video info for: ${cleanUrl}`);
 
-  // Nếu là link TikTok
+  // TikTok links: TikWM is best
   if (cleanUrl.includes('tiktok.com')) {
-    try {
-      return await fetchViaTikWM(cleanUrl);
-    } catch (e) {
-      logger.warn(`TikWM failed: ${e.message}`);
-    }
+    return await fetchViaTikWM(cleanUrl);
   }
 
-  // 1. Resolve link ngắn (v.douyin.com -> douyin.com/video/ID)
+  // Resolve short link (v.douyin.com) using Dalvik UA -> gets iesdouyin.com/share/video/ID
   let resolvedUrl = cleanUrl;
   if (cleanUrl.includes('v.douyin.com') || cleanUrl.includes('vm.douyin.com')) {
     resolvedUrl = await resolveShareUrl(cleanUrl);
     logger.info(`Resolved Douyin URL: ${resolvedUrl}`);
   }
 
-  // 2. Trích xuất video ID
+  // Extract video ID from resolved URL (iesdouyin.com/share/video/ID or douyin.com/video/ID)
   const videoId = parseVideoId(resolvedUrl) || parseVideoId(cleanUrl);
   if (!videoId) {
     throw new Error(`Không thể tìm thấy ID video từ link: ${cleanUrl}`);
@@ -271,16 +276,12 @@ async function getVideoInfo(rawUrl) {
 
   logger.info(`Extracted Douyin ID: ${videoId}`);
 
-  // 3. Lấy thông tin & link không watermark qua Douyin API
+  // Fetch clean no-watermark stream via Douyin API
   try {
     return await fetchDouyinDetail(videoId);
   } catch (e) {
-    logger.warn(`Douyin detail failed: ${e.message}, trying TikWM fallback...`);
-    try {
-      return await fetchViaTikWM(cleanUrl);
-    } catch (e2) {
-      throw new Error(`Lỗi tải thông tin Douyin video (${videoId}): ${e.message}`);
-    }
+    logger.warn(`Douyin API failed: ${e.message}, trying TikWM fallback...`);
+    return await fetchViaTikWM(cleanUrl);
   }
 }
 
