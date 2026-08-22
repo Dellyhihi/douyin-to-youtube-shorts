@@ -87,6 +87,7 @@ class JobQueue {
       status: 'downloaded',
       douyin_id: result.id,
       original_caption: result.caption,
+      title: result.caption || 'Video Douyin',
       local_path: result.localPath,
       file_size: result.fileSize,
       duration: result.duration,
