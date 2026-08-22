@@ -51,19 +51,17 @@ function setupUrlInputListener() {
 
 function extractUrls(text) {
   if (!text) return [];
-  const lines = text.split('\n');
-  const urls = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Check if line contains a URL
-    const match = trimmed.match(/https?:\/\/[^\s，,\u3000\u4e00-\u9fa5]+/);
-    if (match) {
-      urls.push(trimmed);
-    }
+  // Match any http/https URL anywhere in the string
+  const urlMatches = [...text.matchAll(/https?:\/\/[^\s"'<>\u4e00-\u9fa5，,]+/gi)].map(m => m[0]);
+  if (urlMatches.length > 0) {
+    return Array.from(new Set(urlMatches.map(u => u.replace(/[.,!?;:)\]>]+$/, ''))));
   }
-  return urls;
+  // If user pasted without https (e.g. v.douyin.com/xxx)
+  const noHttpMatches = [...text.matchAll(/(?:v\.douyin\.com|douyin\.com|tiktok\.com)\/[^\s"'<>\u4e00-\u9fa5，,]+/gi)].map(m => 'https://' + m[0]);
+  if (noHttpMatches.length > 0) {
+    return Array.from(new Set(noHttpMatches.map(u => u.replace(/[.,!?;:)\]>]+$/, ''))));
+  }
+  return [];
 }
 
 function clearUrlInput() {

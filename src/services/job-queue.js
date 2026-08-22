@@ -81,6 +81,8 @@ class JobQueue {
 
     Video.update(videoId, { status: 'downloading' });
 
+    const result = await douyinDownloader.processDouyinUrl(video.douyin_url);
+
     Video.update(videoId, {
       status: 'downloaded',
       douyin_id: result.id,
