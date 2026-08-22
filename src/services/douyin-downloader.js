@@ -322,18 +322,58 @@ async function getVideoInfo(url) {
 }
 
 /**
- * Trích URL sạch từ share text (vd: "7 Khám phá bộ sưu tập... https://v.douyin.com/xxx")
+ * Kiểm tra xem URL có phải là link stream trực tiếp không
+ * (từ bot Telegram, từ app Douyin, hoặc từ các tool tải khác)
+ */
+function isDirectPlayUrl(url) {
+  if (!url) return false;
+  // Các pattern của direct stream URL Douyin / TikTok
+  return (
+    url.includes('/aweme/v1/play') ||
+    url.includes('douyinvod.com') ||
+    url.includes('tiktokcdn') ||
+    url.includes('tiktokv.com') ||
+    url.includes('v19-') ||
+    url.includes('v16-') ||
+    url.includes('v26-') ||
+    url.includes('v3-') ||
+    /\/video\/tos\//i.test(url) ||
+    // Dấu hiệu URL stream: có mime_type hoặc sign param
+    (url.includes('mime_type=video') || url.includes('sign='))
+  );
+}
+
+/**
+ * Trích URL sạch từ share text Douyin / TikTok
+ * Xử lý các dạng:
+ *  - "5.87 06/04... https://v.douyin.com/xxx/ 复制此链接..."
+ *  - "https://vm.tiktok.com/xxx"
+ *  - URL trực tiếp
  */
 function extractCleanUrl(text) {
   if (!text) return text;
   text = text.trim();
 
-  // Nếu đã là URL thuần
-  if (text.startsWith('http')) return text;
+  // Nếu đã là URL đơn thuần
+  if (/^https?:\/\/\S+$/.test(text)) return text;
 
-  // Tìm URL trong share text
-  const match = text.match(/https?:\/\/[^\s，,\u3000]+/);
-  return match ? match[0] : text;
+  // Tìm tất cả URL trong text, ưu tiên lấy link Douyin/TikTok trước
+  const allUrls = [...text.matchAll(/https?:\/\/[^\s，,\u3000\u4e00-\u9fa5]+/g)].map(m => m[0]);
+
+  if (allUrls.length === 0) return text;
+
+  // Ưu tiên: v.douyin.com, vm.douyin.com, douyin.com, tiktok.com
+  const priority = allUrls.find(u =>
+    u.includes('v.douyin.com') ||
+    u.includes('vm.douyin.com') ||
+    u.includes('douyin.com') ||
+    u.includes('tiktok.com')
+  );
+
+  // Làm sạch URL (bỏ ký tự rác cuối - dấu chấm câu, ngoặc)
+  const clean = (u) => u.replace(/[.,!?;:)\]>]+$/, '');
+
+  return priority ? clean(priority) : clean(allUrls[0]);
 }
 
 // ─── Download File ────────────────────────────────────────────────────────────
@@ -403,11 +443,55 @@ async function downloadVideoFile(videoUrl, videoId) {
 
 /**
  * Pipeline đầy đủ: lấy info + tải file
+ *
+ * Hỗ trợ 3 dạng input:
+ *  1. Share text từ app Douyin (có v.douyin.com nhúng trong text dài)
+ *  2. Direct stream URL từ bot (aweme/v1/play, tiktokcdn, ...)
+ *  3. URL thông thường (v.douyin.com, vm.tiktok.com, ...)
  */
-async function processDouyinUrl(url) {
-  const info = await getVideoInfo(url);
+async function processDouyinUrl(rawInput) {
+  // Bước 1: Trích URL sạch từ share text
+  const cleanUrl = extractCleanUrl(rawInput);
+  logger.info(`Clean URL: ${cleanUrl}`);
 
-  // Thử HD trước, rồi fallback sang SD
+  // Bước 2: Nếu là direct play URL → tải thẳng, không cần getVideoInfo
+  if (isDirectPlayUrl(cleanUrl)) {
+    logger.info(`[Direct] Detected direct stream URL, downloading immediately`);
+
+    // Lấy video_id từ query param nếu có
+    let videoId;
+    try {
+      const parsed = new URL(cleanUrl);
+      videoId = parsed.searchParams.get('video_id') ||
+                parsed.searchParams.get('vid') ||
+                `direct_${Date.now()}`;
+      // Làm sạch videoId (bỏ prefix dạng v0d00fg10000...)
+      videoId = videoId.replace(/^v[0-9a-f]+/, '').slice(0, 20) || `direct_${Date.now()}`;
+    } catch {
+      videoId = `direct_${Date.now()}`;
+    }
+
+    const downloadResult = await downloadVideoFile(cleanUrl, videoId);
+    return {
+      id: videoId,
+      caption: '',
+      author: 'Unknown',
+      videoUrl: cleanUrl,
+      hdVideoUrl: cleanUrl,
+      coverUrl: null,
+      duration: 0,
+      width: 1080,
+      height: 1920,
+      source: 'direct_play_url',
+      localPath: downloadResult.path,
+      fileSize: downloadResult.size,
+    };
+  }
+
+  // Bước 3: URL thông thường → getVideoInfo rồi download
+  const info = await getVideoInfo(cleanUrl);
+
+  // Thử HD trước, fallback SD
   let downloadResult;
   const urlToTry = info.hdVideoUrl || info.videoUrl;
   try {
@@ -433,4 +517,5 @@ module.exports = {
   getVideoInfo,
   downloadVideoFile,
   extractCleanUrl,
+  isDirectPlayUrl,
 };
