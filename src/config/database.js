@@ -61,6 +61,7 @@ class JsonDB {
       id: this.data.nextId++,
       douyin_url: video.douyin_url,
       douyin_id: video.douyin_id || null,
+      author: video.author || 'Douyin Creator',
       original_caption: video.original_caption || null,
       local_path: null,
       thumbnail_path: null,
@@ -129,15 +130,13 @@ class JsonDB {
   getStats() {
     const videos = this.data.videos;
     const count = (status) => videos.filter(v => v.status === status).length;
+    const totalBytes = videos.reduce((sum, v) => sum + (v.file_size || 0), 0);
     return {
       total: videos.length,
+      totalBytes,
       pending: count('pending'),
       downloading: count('downloading'),
-      downloaded: count('downloaded'),
-      generating: count('generating'),
-      ready: count('ready'),
-      uploading: count('uploading'),
-      uploaded: count('uploaded'),
+      downloaded: count('downloaded') + count('ready') + count('uploaded'),
       failed: count('failed'),
     };
   }

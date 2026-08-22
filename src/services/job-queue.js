@@ -81,13 +81,12 @@ class JobQueue {
 
     Video.update(videoId, { status: 'downloading' });
 
-    const result = await douyinDownloader.processDouyinUrl(video.douyin_url);
-
     Video.update(videoId, {
       status: 'downloaded',
       douyin_id: result.id,
+      author: result.author || 'Douyin Creator',
       original_caption: result.caption,
-      title: result.caption || 'Video Douyin',
+      title: result.caption || 'Video Douyin không logo',
       local_path: result.localPath,
       file_size: result.fileSize,
       duration: result.duration,
@@ -95,7 +94,7 @@ class JobQueue {
       height: result.height,
     });
 
-    logger.success(`Video ${videoId} downloaded successfully`);
+    logger.success(`Video ${videoId} downloaded successfully (No Watermark)`);
   }
 
   /**
@@ -193,16 +192,10 @@ class JobQueue {
   }
 
   /**
-   * Full pipeline: download → generate → upload
+   * Pipeline: Tải video không logo và lưu vào bộ sưu tập
    */
   async handleFullPipeline(videoId) {
     await this.handleDownload(videoId);
-    await this.handleGenerate(videoId);
-
-    // Only auto-upload if enabled
-    if (process.env.AUTO_UPLOAD === 'true') {
-      await this.handleUpload(videoId);
-    }
   }
 
   /**

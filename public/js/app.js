@@ -1,600 +1,380 @@
 /**
- * Main Application Logic
- * Douyin → YouTube Shorts Tool
+ * Douyin Video Downloader & Gallery Application
  */
 
-// ─── State ───
-let currentPage = 'dashboard';
-let selectedVideos = new Set();
-let editingVideoId = null;
-let refreshInterval = null;
+let allVideos = [];
+let currentPage = 'add';
+let viewMode = 'grid';
+let refreshTimer = null;
 
-// ─── Initialization ───
 document.addEventListener('DOMContentLoaded', () => {
-  loadDashboard();
-  setupUrlCounter();
+  setupUrlInputListener();
+  loadStats();
+  loadGallery();
   startAutoRefresh();
 });
 
-// ─── Auto Refresh (every 5s) ───
 function startAutoRefresh() {
-  if (refreshInterval) clearInterval(refreshInterval);
-  refreshInterval = setInterval(() => {
-    if (currentPage === 'dashboard') {
-      loadStats();
-      loadRecentVideos();
-    } else if (currentPage === 'videos') {
-      loadVideos();
-    } else if (currentPage === 'queue') {
-      refreshQueue();
-    }
-  }, 5000);
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    loadStats(true);
+    if (currentPage === 'gallery') loadGallery(true);
+    if (currentPage === 'queue') loadQueue(true);
+  }, 4000);
 }
 
-// ─── Page Navigation ───
+// ─── Navigation ───
 function switchPage(page) {
   currentPage = page;
-
-  // Update nav tabs
-  document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.page === page);
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+  document.querySelectorAll('.page-view').forEach(view => {
+    view.classList.toggle('active', view.id === `page-${page}`);
   });
 
-  // Show/hide pages
-  document.querySelectorAll('.page').forEach(p => {
-    p.classList.toggle('active', p.id === `page-${page}`);
-  });
-
-  // Load page data
-  switch (page) {
-    case 'dashboard': loadDashboard(); break;
-    case 'videos': loadVideos(); break;
-    case 'queue': refreshQueue(); break;
-    case 'settings': loadSettings(); break;
-  }
+  if (page === 'gallery') loadGallery();
+  if (page === 'queue') loadQueue();
+  loadStats();
 }
 
-function showSettings() {
-  switchPage('settings');
-}
+// ─── URL Counter ───
+function setupUrlInputListener() {
+  const textarea = document.getElementById('url-input');
+  if (!textarea) return;
 
-// ─── Dashboard ───
-async function loadDashboard() {
-  await loadStats();
-  await loadRecentVideos();
-}
-
-async function loadStats() {
-  try {
-    const result = await API.getStats();
-    const d = result.data;
-
-    document.getElementById('stat-total').textContent = d.total;
-    document.getElementById('stat-pending').textContent = d.pending + d.downloading;
-    document.getElementById('stat-ready').textContent = d.ready;
-    document.getElementById('stat-uploaded').textContent = d.uploaded;
-    document.getElementById('stat-failed').textContent = d.failed;
-    document.getElementById('stat-today-uploads').textContent = d.todayUploads;
-    document.getElementById('stat-max-uploads').textContent = d.maxPerDay;
-    document.getElementById('total-badge').textContent = d.total;
-    document.getElementById('queue-badge').textContent = d.queue.queueSize + (d.queue.processing ? 1 : 0);
-
-    // Update config badges
-    const geminiBadge = document.getElementById('gemini-badge');
-    if (d.geminiConfigured) {
-      geminiBadge.className = 'config-badge ok';
-      geminiBadge.textContent = '✅ Gemini';
-    } else {
-      geminiBadge.className = 'config-badge warn';
-      geminiBadge.textContent = '⚠️ Gemini';
-    }
-
-    const ytBadge = document.getElementById('youtube-badge');
-    if (d.youtubeConnected) {
-      ytBadge.className = 'config-badge ok';
-      ytBadge.textContent = '✅ YouTube';
-    } else {
-      ytBadge.className = 'config-badge warn';
-      ytBadge.textContent = '⚠️ YouTube';
-    }
-  } catch (err) {
-    // Silently fail on stats refresh
-  }
-}
-
-async function loadRecentVideos() {
-  try {
-    const result = await API.getVideos();
-    const videos = result.data.slice(0, 5);
-
-    const container = document.getElementById('recent-videos-container');
-    if (videos.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">📭</div>
-          <div class="empty-title">Chưa có video nào</div>
-          <div class="empty-desc">Bắt đầu bằng cách thêm link video Douyin</div>
-          <button class="btn btn-primary" onclick="switchPage('add')">➕ Thêm video</button>
-        </div>`;
-      return;
-    }
-
-    container.innerHTML = `
-      <table class="video-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>URL / Caption</th>
-            <th>Trạng thái</th>
-            <th>Thời gian</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${videos.map((v, i) => `
-            <tr>
-              <td>${v.id}</td>
-              <td class="video-title-cell">
-                <div class="video-title-text">${escapeHtml(v.title || v.original_caption || 'Chưa có caption')}</div>
-                <div class="video-url-text">${escapeHtml(v.douyin_url)}</div>
-              </td>
-              <td>${statusBadge(v.status)}</td>
-              <td style="font-size: 12px; color: var(--text-muted);">${formatDate(v.created_at)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>`;
-  } catch (err) {
-    // Silently fail
-  }
-}
-
-// ─── Add Videos ───
-function setupUrlCounter() {
-  const input = document.getElementById('url-input');
-  if (!input) return;
-  input.addEventListener('input', () => {
-    const urls = extractUrls(input.value);
+  textarea.addEventListener('input', () => {
+    const urls = extractUrls(textarea.value);
     document.getElementById('url-count-num').textContent = urls.length;
   });
 }
 
 function extractUrls(text) {
+  if (!text) return [];
   const lines = text.split('\n');
   const urls = [];
+
   for (const line of lines) {
-    const match = line.match(/https?:\/\/[^\s]+/);
-    if (match) urls.push(match[0]);
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Check if line contains a URL
+    const match = trimmed.match(/https?:\/\/[^\s，,\u3000\u4e00-\u9fa5]+/);
+    if (match) {
+      urls.push(trimmed);
+    }
   }
   return urls;
 }
 
 function clearUrlInput() {
-  document.getElementById('url-input').value = '';
+  const input = document.getElementById('url-input');
+  if (input) input.value = '';
   document.getElementById('url-count-num').textContent = '0';
 }
 
-async function addVideos() {
-  const input = document.getElementById('url-input');
-  const urls = extractUrls(input.value);
+// ─── Start Download ───
+async function startBatchDownload() {
+  const textarea = document.getElementById('url-input');
+  const urls = extractUrls(textarea.value);
 
   if (urls.length === 0) {
-    showToast('Không tìm thấy link Douyin nào', 'warning');
+    showToast('⚠️ Vui lòng dán ít nhất 1 đường link Douyin hoặc TikTok', 'warning');
     return;
   }
 
-  const autoProcess = document.getElementById('auto-process-checkbox').checked;
-  const btn = document.getElementById('add-btn');
-
+  const btn = document.getElementById('btn-start-download');
   btn.disabled = true;
-  btn.textContent = '⏳ Đang xử lý...';
+  btn.innerHTML = '⏳ Đang khởi tạo...';
 
   try {
-    const result = await API.addVideos(urls, autoProcess);
-    showToast(`✅ ${result.message}`, 'success');
+    const res = await API.addVideos(urls);
+    showToast(`🚀 Đã thêm ${urls.length} video vào tiến trình tải không logo!`, 'success');
     clearUrlInput();
-    loadStats();
+    
+    // Switch to Queue or Gallery to monitor
+    setTimeout(() => {
+      switchPage('gallery');
+    }, 1000);
   } catch (err) {
-    showToast(`❌ ${err.message}`, 'error');
+    showToast(`❌ Lỗi: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '🚀 Thêm & Tải';
+    btn.innerHTML = '⚡ Tải Video Ngay (Xóa Logo)';
   }
 }
 
-// ─── Videos List ───
-async function loadVideos() {
+// ─── Load Stats ───
+async function loadStats(silent = false) {
   try {
-    const status = document.getElementById('filter-status')?.value || '';
-    const result = await API.getVideos(status);
-    const videos = result.data;
+    const res = await API.getStats();
+    const data = res.data;
 
-    const tbody = document.getElementById('video-tbody');
+    document.getElementById('header-total-count').textContent = data.total || 0;
+    document.getElementById('nav-badge').textContent = data.total || 0;
+    document.getElementById('queue-badge').textContent = data.queue?.queueSize || 0;
 
-    if (videos.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="7">
-            <div class="empty-state" style="padding: 40px;">
-              <div class="empty-icon">🔍</div>
-              <div class="empty-title">Không có video nào</div>
-            </div>
-          </td>
-        </tr>`;
-      return;
-    }
+    const totalBytes = (data.totalBytes || 0);
+    document.getElementById('header-total-size').textContent = formatBytes(totalBytes);
+  } catch (_) {}
+}
 
-    tbody.innerHTML = videos.map(v => {
-      const videoFileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : null;
-      const videoFileUrl = videoFileName ? `/downloads/${videoFileName}` : null;
-      const displayTitle = v.title || v.original_caption || 'Video Douyin';
-
-      return `
-      <tr data-id="${v.id}">
-        <td><input type="checkbox" class="checkbox video-select" value="${v.id}" onchange="updateSelection()"></td>
-        <td style="font-size: 12px; color: var(--text-muted);">${v.id}</td>
-        <td class="video-title-cell">
-          <div class="video-title-text" style="font-weight: 500;">
-            ${escapeHtml(displayTitle)}
-          </div>
-          <div class="video-url-text" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-            ${v.author ? '👤 ' + escapeHtml(v.author) + ' · ' : ''}${formatBytes(v.file_size || 0)}
-          </div>
-          <div class="video-url-text" style="font-size: 11px; color: var(--accent-primary); margin-top: 2px;">
-            ${escapeHtml(v.douyin_url)}
-          </div>
-        </td>
-        <td>${statusBadge(v.status)}</td>
-        <td style="max-width: 200px;">
-          <div style="font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            ${v.title ? '✅ ' + escapeHtml(v.title.substring(0, 35)) : '—'}
-          </div>
-        </td>
-        <td>
-          ${v.youtube_url
-            ? `<a href="${v.youtube_url}" target="_blank" class="yt-link">🔗 ${v.youtube_id}</a>`
-            : '<span style="color: var(--text-muted); font-size: 12px;">—</span>'}
-        </td>
-        <td>
-          <div class="action-group">
-            ${videoFileUrl ? `<button class="btn btn-primary btn-sm" onclick="openPreview('${videoFileUrl}', '${escapeHtml(displayTitle)}', '${formatBytes(v.file_size || 0)}')" title="Xem video">▶️ Xem</button>` : ''}
-            ${videoFileUrl ? `<a href="${videoFileUrl}" download="${videoFileName}" class="btn btn-secondary btn-sm" title="Lưu MP4 về máy" style="text-decoration:none; display:inline-flex; align-items:center;">💾 Lưu</a>` : ''}
-            ${v.status === 'pending' ? `<button class="btn btn-secondary btn-sm" onclick="actionDownload(${v.id})" title="Tải về">⬇️ Tải</button>` : ''}
-            ${v.status === 'downloaded' ? `<button class="btn btn-secondary btn-sm" onclick="actionGenerate(${v.id})" title="Tạo caption">🤖 AI</button>` : ''}
-            ${v.status === 'ready' ? `<button class="btn btn-success btn-sm" onclick="actionUpload(${v.id})" title="Upload">📤 Up</button>` : ''}
-            ${['downloaded', 'ready', 'failed'].includes(v.status) ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${v.id})" title="Chỉnh sửa">✏️</button>` : ''}
-            ${v.status === 'failed' ? `<button class="btn btn-secondary btn-sm" onclick="retryVideo(${v.id})" title="Thử lại">🔄</button>` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="actionDelete(${v.id})" title="Xoá">🗑️</button>
-          </div>
-          ${v.error_message ? `<div style="font-size: 11px; color: var(--status-failed); margin-top: 4px;">${escapeHtml(v.error_message.substring(0, 100))}</div>` : ''}
-        </td>
-      </tr>
-      `;
-    }).join('');
-
-    updateBatchBar();
+// ─── Load Gallery ───
+async function loadGallery(silent = false) {
+  try {
+    const res = await API.getVideos();
+    allVideos = res.data || [];
+    renderGallery(allVideos);
   } catch (err) {
-    showToast(`❌ Lỗi tải danh sách: ${err.message}`, 'error');
+    if (!silent) showToast(`❌ Lỗi tải bộ sưu tập: ${err.message}`, 'error');
   }
 }
 
-// ─── Video Actions ───
-async function actionDownload(id) {
-  try {
-    await API.downloadVideo(id);
-    showToast('⬇️ Đã thêm vào hàng đợi tải', 'info');
-    loadVideos();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-async function actionGenerate(id) {
-  try {
-    await API.generateCaption(id);
-    showToast('🤖 Đang tạo caption...', 'info');
-    loadVideos();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-async function actionUpload(id) {
-  try {
-    await API.uploadVideo(id);
-    showToast('📤 Đang upload lên YouTube...', 'info');
-    loadVideos();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-async function actionDelete(id) {
-  if (!confirm('Bạn chắc chắn muốn xoá video này?')) return;
-  try {
-    await API.deleteVideo(id);
-    showToast('🗑️ Đã xoá video', 'success');
-    loadVideos();
-    loadStats();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-async function retryVideo(id) {
-  try {
-    const video = (await API.getVideo(id)).data;
-    if (!video.local_path) {
-      await API.downloadVideo(id);
-      showToast('🔄 Đang thử tải lại...', 'info');
-    } else if (!video.title) {
-      await API.generateCaption(id);
-      showToast('🔄 Đang thử tạo caption lại...', 'info');
-    } else {
-      await API.uploadVideo(id);
-      showToast('🔄 Đang thử upload lại...', 'info');
-    }
-    loadVideos();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-// ─── Batch Operations ───
-function toggleSelectAll() {
-  const selectAll = document.getElementById('select-all').checked;
-  document.querySelectorAll('.video-select').forEach(cb => { cb.checked = selectAll; });
-  updateSelection();
-}
-
-function updateSelection() {
-  selectedVideos.clear();
-  document.querySelectorAll('.video-select:checked').forEach(cb => {
-    selectedVideos.add(parseInt(cb.value));
-  });
-  updateBatchBar();
-}
-
-function updateBatchBar() {
-  const bar = document.getElementById('batch-bar');
-  if (selectedVideos.size > 0) {
-    bar.style.display = 'flex';
-    document.getElementById('selected-count').textContent = selectedVideos.size;
-  } else {
-    bar.style.display = 'none';
-  }
-}
-
-async function batchSelected(action) {
-  if (selectedVideos.size === 0) {
-    showToast('Chưa chọn video nào', 'warning');
+function filterGallery() {
+  const query = (document.getElementById('gallery-search')?.value || '').toLowerCase().trim();
+  if (!query) {
+    renderGallery(allVideos);
     return;
   }
 
-  if (action === 'delete' && !confirm(`Xoá ${selectedVideos.size} video?`)) return;
+  const filtered = allVideos.filter(v => {
+    const title = (v.title || v.original_caption || '').toLowerCase();
+    const author = (v.author || '').toLowerCase();
+    const url = (v.douyin_url || '').toLowerCase();
+    return title.includes(query) || author.includes(query) || url.includes(query);
+  });
 
-  try {
-    const ids = Array.from(selectedVideos);
-    await API.batchAction(ids, action);
-    showToast(`✅ Đã thực hiện ${action} cho ${ids.length} video`, 'success');
-    selectedVideos.clear();
-    loadVideos();
-    loadStats();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
+  renderGallery(filtered);
 }
 
-async function batchAction(action) {
-  try {
-    const result = await API.getVideos();
-    const videos = result.data;
-    let targets = [];
+function renderGallery(videos) {
+  const gridContainer = document.getElementById('video-grid');
+  const tableWrapper = document.getElementById('video-table-wrapper');
+  const tableBody = document.getElementById('video-table-body');
+  const emptyBox = document.getElementById('gallery-empty');
 
-    switch (action) {
-      case 'download':
-        targets = videos.filter(v => v.status === 'pending');
-        break;
-      case 'generate':
-        targets = videos.filter(v => v.status === 'downloaded');
-        break;
-      case 'upload':
-        targets = videos.filter(v => v.status === 'ready');
-        break;
-    }
-
-    if (targets.length === 0) {
-      showToast(`Không có video nào phù hợp cho action "${action}"`, 'warning');
-      return;
-    }
-
-    const ids = targets.map(v => v.id);
-    await API.batchAction(ids, action);
-    showToast(`✅ Đã thêm ${ids.length} jobs vào hàng đợi`, 'success');
-    loadStats();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-// ─── Edit Modal ───
-async function openEdit(id) {
-  editingVideoId = id;
-  try {
-    const result = await API.getVideo(id);
-    const v = result.data;
-
-    document.getElementById('edit-title').value = v.title || '';
-    document.getElementById('edit-description').value = v.description || '';
-    document.getElementById('edit-tags').value = (v.tags || []).join(', ');
-    document.getElementById('edit-category').value = v.category || 'Entertainment';
-
-    document.getElementById('edit-modal').classList.add('active');
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-function closeModal() {
-  document.getElementById('edit-modal').classList.remove('active');
-  editingVideoId = null;
-}
-
-async function saveEdit() {
-  if (!editingVideoId) return;
-
-  const data = {
-    title: document.getElementById('edit-title').value,
-    description: document.getElementById('edit-description').value,
-    tags: document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean),
-    category: document.getElementById('edit-category').value,
-  };
-
-  try {
-    await API.updateVideo(editingVideoId, data);
-    showToast('💾 Đã lưu thay đổi', 'success');
-    closeModal();
-    loadVideos();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
-}
-
-// Close modal on outside click
-document.addEventListener('click', (e) => {
-  if (e.target.classList.contains('modal-overlay')) {
-    closeModal();
+  if (!videos || videos.length === 0) {
+    gridContainer.innerHTML = '';
+    tableBody.innerHTML = '';
+    gridContainer.style.display = 'none';
+    tableWrapper.style.display = 'none';
+    emptyBox.style.display = 'block';
+    return;
   }
-});
 
-// ─── Queue ───
-async function refreshQueue() {
+  emptyBox.style.display = 'none';
+
+  if (viewMode === 'grid') {
+    gridContainer.style.display = 'grid';
+    tableWrapper.style.display = 'none';
+    gridContainer.innerHTML = videos.map(v => renderGridCard(v)).join('');
+  } else {
+    gridContainer.style.display = 'none';
+    tableWrapper.style.display = 'block';
+    tableBody.innerHTML = videos.map((v, i) => renderTableRow(v, i)).join('');
+  }
+}
+
+function renderGridCard(v) {
+  const fileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : '';
+  const videoUrl = fileName ? `/downloads/${fileName}` : null;
+  const displayTitle = v.title || v.original_caption || 'Video Douyin không logo';
+  const durationStr = formatDuration(v.duration || 0);
+  const sizeStr = formatBytes(v.file_size || 0);
+  const dateStr = formatDate(v.created_at);
+
+  const statusText = v.status === 'downloading' ? '⏳ Đang tải...' :
+                     v.status === 'failed' ? '❌ Thất bại' : '✅ Đã xóa logo';
+
+  return `
+  <div class="video-card" data-id="${v.id}">
+    <div class="card-media" onclick="openVideoPlayer(${v.id})">
+      ${videoUrl ? `<video src="${videoUrl}#t=0.5" preload="metadata"></video>` : `<div style="background:#1e293b;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;">🎬</div>`}
+      
+      <div class="play-overlay">
+        <div class="play-badge-icon">▶</div>
+      </div>
+
+      <span class="card-badge-status">${statusText}</span>
+      ${v.duration ? `<span class="card-badge-duration">${durationStr}</span>` : ''}
+    </div>
+
+    <div class="card-content">
+      <h4 class="card-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</h4>
+      <div class="card-author">👤 ${escapeHtml(v.author || 'Douyin Creator')}</div>
+
+      <div class="card-meta-row">
+        <span>📦 ${sizeStr}</span>
+        <span>🕒 ${dateStr}</span>
+      </div>
+
+      <div class="card-actions">
+        ${videoUrl ? `<button class="btn btn-primary btn-sm" onclick="openVideoPlayer(${v.id})">▶️ Xem</button>` : ''}
+        ${videoUrl ? `<a href="${videoUrl}" download="${fileName}" class="btn btn-secondary btn-sm" title="Lưu MP4 về máy">💾 Lưu</a>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="deleteVideoItem(${v.id})" title="Xoá video">🗑️</button>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function renderTableRow(v, i) {
+  const fileName = v.local_path ? v.local_path.split(/[/\\\\]/).pop() : '';
+  const videoUrl = fileName ? `/downloads/${fileName}` : null;
+  const displayTitle = v.title || v.original_caption || 'Video Douyin không logo';
+
+  return `
+  <tr>
+    <td style="color:var(--text-muted);">${i + 1}</td>
+    <td style="max-width:320px; font-weight:600;">
+      <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(displayTitle)}">
+        ${escapeHtml(displayTitle)}
+      </div>
+      <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(v.douyin_url)}</div>
+    </td>
+    <td>${escapeHtml(v.author || 'Douyin Creator')}</td>
+    <td>${formatBytes(v.file_size || 0)}</td>
+    <td>${formatDuration(v.duration || 0)}</td>
+    <td style="color:var(--text-muted); font-size:12px;">${formatDate(v.created_at)}</td>
+    <td>
+      <div style="display:flex; gap:6px;">
+        ${videoUrl ? `<button class="btn btn-primary btn-sm" onclick="openVideoPlayer(${v.id})">▶️ Xem</button>` : ''}
+        ${videoUrl ? `<a href="${videoUrl}" download="${fileName}" class="btn btn-secondary btn-sm">💾 Lưu</a>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="deleteVideoItem(${v.id})">🗑️</button>
+      </div>
+    </td>
+  </tr>
+  `;
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  document.getElementById('btn-view-grid').classList.toggle('active', mode === 'grid');
+  document.getElementById('btn-view-table').classList.toggle('active', mode === 'table');
+  renderGallery(allVideos);
+}
+
+// ─── Video Modal Player ───
+function openVideoPlayer(id) {
+  const video = allVideos.find(v => v.id === id);
+  if (!video || !video.local_path) return;
+
+  const fileName = video.local_path.split(/[/\\\\]/).pop();
+  const videoUrl = `/downloads/${fileName}`;
+  const displayTitle = video.title || video.original_caption || 'Video Douyin không logo';
+
+  const modal = document.getElementById('video-modal');
+  const player = document.getElementById('modal-player');
+  const downloadBtn = document.getElementById('modal-download-btn');
+
+  document.getElementById('modal-video-title').textContent = `🎬 ${displayTitle}`;
+  document.getElementById('modal-author').textContent = video.author || 'Douyin Creator';
+  document.getElementById('modal-size').textContent = formatBytes(video.file_size || 0);
+  document.getElementById('modal-duration').textContent = formatDuration(video.duration || 0);
+  document.getElementById('modal-caption').textContent = video.original_caption || displayTitle;
+
+  player.src = videoUrl;
+  downloadBtn.href = videoUrl;
+  downloadBtn.setAttribute('download', fileName);
+
+  modal.classList.add('active');
+  player.play().catch(() => {});
+}
+
+function closeVideoModal() {
+  const modal = document.getElementById('video-modal');
+  const player = document.getElementById('modal-player');
+  if (player) {
+    player.pause();
+    player.src = '';
+  }
+  if (modal) modal.classList.remove('active');
+}
+
+function onBackdropClick(e) {
+  if (e.target.id === 'video-modal') {
+    closeVideoModal();
+  }
+}
+
+// ─── Delete Video ───
+async function deleteVideoItem(id) {
+  if (!confirm('Bạn có chắc muốn xoá video này khỏi bộ sưu tập?')) return;
+
   try {
-    const result = await API.getQueue();
-    const q = result.data;
-    const container = document.getElementById('queue-container');
+    await API.deleteVideo(id);
+    showToast('🗑️ Đã xoá video khỏi bộ sưu tập', 'info');
+    loadGallery();
+    loadStats();
+  } catch (err) {
+    showToast(`❌ Lỗi xoá: ${err.message}`, 'error');
+  }
+}
 
-    if (!q.processing && q.pendingJobs.length === 0) {
+// ─── Queue Progress ───
+async function loadQueue() {
+  try {
+    const res = await API.getQueue();
+    const q = res.data;
+    const container = document.getElementById('queue-list');
+
+    if (!q || (!q.processing && (!q.pendingJobs || q.pendingJobs.length === 0))) {
       container.innerHTML = `
-        <div class="empty-state">
+        <div class="empty-box" style="padding: 30px;">
           <div class="empty-icon">😴</div>
-          <div class="empty-title">Hàng đợi trống</div>
-          <div class="empty-desc">Không có job nào đang chờ xử lý</div>
-        </div>`;
+          <h3>Không có video nào đang chờ tải</h3>
+          <p>Tất cả video đã được tải hoàn tất về bộ sưu tập!</p>
+        </div>
+      `;
       return;
     }
 
     let html = '';
-
     if (q.currentJob) {
       html += `
-        <div style="padding: 16px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: var(--radius-md); margin-bottom: 12px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div class="status-dot" style="background: var(--accent-primary); width: 8px; height: 8px; border-radius: 50%; animation: pulse-dot 1s infinite;"></div>
-            <strong style="font-size: 14px;">Đang xử lý</strong>
-            <span style="font-size: 13px; color: var(--text-secondary);">Video #${q.currentJob.videoId} - ${q.currentJob.type}</span>
+        <div class="queue-item" style="border-color: var(--accent-primary); background: rgba(99,102,241,0.06);">
+          <div>
+            <strong>⏳ Đang tải video #${q.currentJob.videoId}...</strong>
+            <div style="font-size:12px; color:var(--text-muted);">Đang bóc tách và tải file video không watermark</div>
           </div>
-          <div class="progress-bar" style="margin-top: 12px;">
-            <div class="progress-fill" style="width: 60%; animation: shimmer 1.5s infinite;"></div>
-          </div>
-        </div>`;
+          <span class="card-badge-status" style="position:static;">Đang tải</span>
+        </div>
+      `;
     }
 
-    if (q.pendingJobs.length > 0) {
-      html += `<div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">Đang chờ: ${q.pendingJobs.length} jobs</div>`;
-      q.pendingJobs.forEach((job, i) => {
-        html += `
-          <div style="padding: 10px 16px; background: rgba(255,255,255,0.02); border-radius: var(--radius-sm); margin-bottom: 4px; font-size: 13px; display: flex; align-items: center; gap: 10px;">
-            <span style="color: var(--text-muted);">${i + 1}.</span>
-            <span>Video #${job.videoId}</span>
-            <span style="color: var(--text-muted);">→ ${job.type}</span>
-          </div>`;
-      });
+    if (q.pendingJobs && q.pendingJobs.length > 0) {
+      html += q.pendingJobs.map((job, idx) => `
+        <div class="queue-item">
+          <div>
+            <strong>#${idx + 1}. Video #${job.videoId}</strong>
+            <div style="font-size:12px; color:var(--text-muted);">Đang xếp hàng chờ tải</div>
+          </div>
+          <span style="font-size:12px; color:var(--text-muted);">Đang chờ</span>
+        </div>
+      `).join('');
     }
 
     container.innerHTML = html;
-  } catch (err) {
-    // Silently fail
-  }
-}
-
-// ─── Settings ───
-async function loadSettings() {
-  try {
-    const stats = await API.getStats();
-    const d = stats.data;
-
-    // Gemini status
-    const geminiEl = document.getElementById('gemini-status');
-    if (d.geminiConfigured) {
-      geminiEl.className = 'config-badge ok';
-      geminiEl.textContent = '✅ Đã cấu hình';
-    } else {
-      geminiEl.className = 'config-badge warn';
-      geminiEl.textContent = '⚠️ Chưa cấu hình - thêm GEMINI_API_KEY vào .env';
-    }
-
-    // YouTube connection
-    try {
-      const ytResult = await API.getYouTubeStatus();
-      const yt = ytResult.data;
-
-      if (yt.connected && yt.channel) {
-        document.getElementById('yt-not-connected').style.display = 'none';
-        document.getElementById('yt-connected').style.display = 'block';
-        document.getElementById('yt-avatar').src = yt.channel.thumbnail || '';
-        document.getElementById('yt-channel-name').textContent = yt.channel.title;
-        document.getElementById('yt-sub-count').textContent = formatNumber(yt.channel.subscriberCount);
-        document.getElementById('yt-video-count').textContent = formatNumber(yt.channel.videoCount);
-
-        const ytOAuth = document.getElementById('yt-oauth-status');
-        ytOAuth.className = 'config-badge ok';
-        ytOAuth.textContent = '✅ Đã kết nối';
-      } else {
-        document.getElementById('yt-not-connected').style.display = 'block';
-        document.getElementById('yt-connected').style.display = 'none';
-      }
-    } catch (err) {
-      document.getElementById('yt-not-connected').style.display = 'block';
-      document.getElementById('yt-connected').style.display = 'none';
-    }
-  } catch (err) {
-    // Silently fail
-  }
-}
-
-async function disconnectYouTube() {
-  if (!confirm('Ngắt kết nối YouTube?')) return;
-  try {
-    await API.disconnectYouTube();
-    showToast('📺 Đã ngắt kết nối YouTube', 'success');
-    loadSettings();
-    loadStats();
-  } catch (err) { showToast(`❌ ${err.message}`, 'error'); }
+  } catch (_) {}
 }
 
 // ─── Toast Notifications ───
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
-
+function showToast(msg, type = 'info') {
+  const stack = document.getElementById('toast-stack');
   const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${icons[type] || 'ℹ️'}</span>
-    <span>${message}</span>
-    <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
-  `;
+  toast.className = 'toast-msg';
+  toast.textContent = msg;
 
-  container.appendChild(toast);
+  stack.appendChild(toast);
 
-  // Auto remove after 4s
   setTimeout(() => {
-    toast.style.animation = 'slideOutRight 0.3s ease forwards';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    toast.style.transition = 'all 0.2s ease';
+    setTimeout(() => toast.remove(), 200);
+  }, 3500);
 }
 
-// ─── Utilities ───
-function statusBadge(status) {
-  const labels = {
-    pending: 'Đang chờ',
-    downloading: 'Đang tải',
-    downloaded: 'Đã tải',
-    generating: 'Đang tạo AI',
-    ready: 'Sẵn sàng',
-    uploading: 'Đang upload',
-    uploaded: 'Đã upload',
-    failed: 'Thất bại',
-  };
-
-  return `<span class="status-badge status-${status}">
-    <span class="status-dot"></span>
-    ${labels[status] || status}
-  </span>`;
-}
-
+// ─── Helpers ───
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
@@ -603,38 +383,12 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// ─── Video Preview Modal ───
-function openPreview(videoUrl, title, sizeStr) {
-  const modal = document.getElementById('preview-modal');
-  const player = document.getElementById('preview-video-player');
-  const titleEl = document.getElementById('preview-title');
-  const infoEl = document.getElementById('preview-info');
-  const downloadBtn = document.getElementById('preview-download-btn');
-
-  if (!modal || !player) return;
-
-  titleEl.textContent = `🎬 ${title || 'Xem Video'}`;
-  infoEl.textContent = `Dung lượng: ${sizeStr || 'N/A'}`;
-  player.src = videoUrl;
-  downloadBtn.href = videoUrl;
-  downloadBtn.setAttribute('download', videoUrl.split('/').pop() || 'video.mp4');
-
-  modal.classList.add('active');
-  player.play().catch(() => {});
+function formatDuration(seconds) {
+  if (!seconds) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
-
-function closePreview() {
-  const modal = document.getElementById('preview-modal');
-  const player = document.getElementById('preview-video-player');
-  if (player) {
-    player.pause();
-    player.src = '';
-  }
-  if (modal) {
-    modal.classList.remove('active');
-  }
-}
-
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -642,10 +396,9 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('vi-VN') + ' ' + d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
 
-function formatNumber(num) {
-  if (!num) return '0';
-  num = parseInt(num);
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-  return num.toString();
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }

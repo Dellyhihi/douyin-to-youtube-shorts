@@ -3,385 +3,223 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Douyin → YouTube Shorts | Automation Tool</title>
-  <meta name="description" content="Tự động tải video Douyin, AI tạo caption & thumbnail, upload YouTube Shorts">
+  <title>Douyin Video Downloader | Tải Video Douyin Không Logo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
 </head>
 <body>
 
-<div class="app-container">
-  <!-- Header -->
+  <!-- App Header -->
   <header class="app-header">
-    <div class="header-brand">
-      <div class="header-logo">🚀</div>
-      <div>
-        <div class="header-title">Douyin → YouTube Shorts</div>
-        <div class="header-subtitle">Automation Tool v1.0</div>
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-logo">🎬</div>
+        <div class="brand-info">
+          <h1>Douyin Video Downloader</h1>
+          <span class="brand-badge">⚡ Tải Video Không Logo / Watermark</span>
+        </div>
       </div>
-    </div>
-    <div class="header-actions">
-      <span id="gemini-badge" class="config-badge warn">⚠️ Gemini</span>
-      <span id="youtube-badge" class="config-badge warn">⚠️ YouTube</span>
-      <button class="btn btn-secondary btn-sm" onclick="showSettings()">⚙️ Cài đặt</button>
+      
+      <div class="header-stats">
+        <div class="stat-pill">
+          <span class="stat-pill-label">Bộ sưu tập:</span>
+          <span class="stat-pill-val" id="header-total-count">0</span> video
+        </div>
+        <div class="stat-pill">
+          <span class="stat-pill-label">Dung lượng:</span>
+          <span class="stat-pill-val" id="header-total-size">0 MB</span>
+        </div>
+      </div>
     </div>
   </header>
 
-  <!-- Navigation -->
-  <nav class="nav-tabs" id="nav-tabs">
-    <button class="nav-tab active" data-page="dashboard" onclick="switchPage('dashboard')">
-      📊 Dashboard
-    </button>
-    <button class="nav-tab" data-page="add" onclick="switchPage('add')">
-      ➕ Thêm Video
-    </button>
-    <button class="nav-tab" data-page="videos" onclick="switchPage('videos')">
-      🎬 Danh sách <span class="badge" id="total-badge">0</span>
-    </button>
-    <button class="nav-tab" data-page="queue" onclick="switchPage('queue')">
-      ⏳ Hàng đợi <span class="badge" id="queue-badge">0</span>
-    </button>
-    <button class="nav-tab" data-page="settings" onclick="switchPage('settings')">
-      ⚙️ Cài đặt
-    </button>
+  <!-- Navigation Bar -->
+  <nav class="app-nav">
+    <div class="nav-container">
+      <button class="nav-btn active" data-page="add" onclick="switchPage('add')">
+        <span class="nav-icon">📥</span> Tải Video Mới
+      </button>
+      <button class="nav-btn" data-page="gallery" onclick="switchPage('gallery')">
+        <span class="nav-icon">🎬</span> Bộ Sưu Tập Video <span class="counter-badge" id="nav-badge">0</span>
+      </button>
+      <button class="nav-btn" data-page="queue" onclick="switchPage('queue')">
+        <span class="nav-icon">⏳</span> Tiến Trình <span class="counter-badge" id="queue-badge">0</span>
+      </button>
+    </div>
   </nav>
 
-  <!-- ═══════════════════════════════════════ -->
-  <!-- Dashboard Page -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="page active" id="page-dashboard">
-    <div class="stats-grid" id="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon">📦</div>
-        <div class="stat-value" id="stat-total">0</div>
-        <div class="stat-label">Tổng video</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">⏳</div>
-        <div class="stat-value" id="stat-pending">0</div>
-        <div class="stat-label">Đang chờ</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">✅</div>
-        <div class="stat-value" id="stat-ready">0</div>
-        <div class="stat-label">Sẵn sàng</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">📤</div>
-        <div class="stat-value" id="stat-uploaded">0</div>
-        <div class="stat-label">Đã upload</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">❌</div>
-        <div class="stat-value" id="stat-failed">0</div>
-        <div class="stat-label">Thất bại</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">📊</div>
-        <div class="stat-value"><span id="stat-today-uploads">0</span>/<span id="stat-max-uploads">5</span></div>
-        <div class="stat-label">Upload hôm nay</div>
-      </div>
-    </div>
+  <!-- Main Content -->
+  <main class="main-content">
 
-    <!-- Quick actions -->
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">⚡ Thao tác nhanh</h2>
-      </div>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <button class="btn btn-primary btn-lg" onclick="switchPage('add')">
-          ➕ Thêm video Douyin
-        </button>
-        <button class="btn btn-secondary btn-lg" onclick="batchAction('download')">
-          ⬇️ Tải tất cả pending
-        </button>
-        <button class="btn btn-secondary btn-lg" onclick="batchAction('generate')">
-          🤖 Tạo caption tất cả
-        </button>
-        <button class="btn btn-youtube btn-lg" onclick="batchAction('upload')">
-          📤 Upload tất cả ready
-        </button>
-      </div>
-    </div>
-
-    <!-- Recent videos -->
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">🕐 Video gần đây</h2>
-        <button class="btn btn-secondary btn-sm" onclick="switchPage('videos')">Xem tất cả →</button>
-      </div>
-      <div id="recent-videos-container">
-        <div class="empty-state">
-          <div class="empty-icon">📭</div>
-          <div class="empty-title">Chưa có video nào</div>
-          <div class="empty-desc">Bắt đầu bằng cách thêm link video Douyin</div>
+    <!-- ═══════════════════════════════════════ -->
+    <!-- Page 1: Tải Video Mới -->
+    <!-- ═══════════════════════════════════════ -->
+    <section class="page-view active" id="page-add">
+      <div class="glass-card upload-hero">
+        <div class="hero-header">
+          <h2>📥 Tải Video Douyin / TikTok Không Watermark</h2>
+          <p>Dán link chia sẻ hoặc văn bản từ Douyin/TikTok (hỗ trợ dán nhiều link cùng lúc, mỗi link 1 dòng)</p>
         </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- ═══════════════════════════════════════ -->
-  <!-- Add Videos Page -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="page" id="page-add">
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">➕ Thêm Video Douyin</h2>
-      </div>
-      <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 14px;">
-        Dán các link Douyin vào ô bên dưới, mỗi link một dòng. Hỗ trợ cả link ngắn (v.douyin.com) và link dài.
-      </p>
-      <div class="url-input-area">
-        <textarea
-          class="url-textarea"
-          id="url-input"
-          placeholder="Dán link Douyin tại đây...&#10;&#10;Ví dụ:&#10;https://v.douyin.com/iYxxxxxxx/&#10;https://www.douyin.com/video/7123456789012345678&#10;&#10;Hoặc paste cả đoạn share text, hệ thống sẽ tự trích xuất link"
-          spellcheck="false"
-        ></textarea>
-        <div class="url-actions">
-          <div class="url-count">
-            <span id="url-count-num">0</span> link được phát hiện
+        <div class="input-wrapper">
+          <textarea 
+            id="url-input" 
+            class="url-textarea" 
+            placeholder="Ví dụ dán link hoặc text chia sẻ:
+5.87 06/04 悟空队vs超人队 https://v.douyin.com/qLENPvwvgvw/ 复制此链接...
+https://v.douyin.com/ZqPAlD5Yaw8/
+https://www.douyin.com/video/7676331104857997940"
+            rows="6"
+          ></textarea>
+
+          <div class="textarea-footer">
+            <div class="url-counter">
+              Đã phát hiện: <strong id="url-count-num">0</strong> link hợp lệ
+            </div>
+            <div class="textarea-actions">
+              <button class="btn btn-ghost" onclick="clearUrlInput()">Xoá trắng</button>
+              <button class="btn btn-primary" id="btn-start-download" onclick="startBatchDownload()">
+                ⚡ Tải Video Ngay (Xóa Logo)
+              </button>
+            </div>
           </div>
-          <div style="display: flex; gap: 8px;">
-            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
-              <input type="checkbox" id="auto-process-checkbox" checked class="checkbox">
-              Tự động xử lý
-            </label>
-            <button class="btn btn-secondary" onclick="clearUrlInput()">🗑️ Xoá</button>
-            <button class="btn btn-primary btn-lg" onclick="addVideos()" id="add-btn">
-              🚀 Thêm & Tải
-            </button>
+        </div>
+
+        <div class="feature-strip">
+          <div class="feature-item">
+            <span class="feat-icon">✨</span>
+            <span>Tự động xóa 100% Watermark & Logo Douyin</span>
+          </div>
+          <div class="feature-item">
+            <span class="feat-icon">🚀</span>
+            <span>Chất lượng video gốc HD / 1080p / 60fps</span>
+          </div>
+          <div class="feature-item">
+            <span class="feat-icon">📁</span>
+            <span>Lưu tự động vào Bộ sưu tập trên máy tính</span>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <!-- ═══════════════════════════════════════ -->
-  <!-- Videos List Page -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="page" id="page-videos">
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">🎬 Danh sách Video</h2>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <select class="select-field" id="filter-status" style="width: auto; min-width: 140px;" onchange="loadVideos()">
-            <option value="">Tất cả</option>
-            <option value="pending">⏳ Pending</option>
-            <option value="downloading">⬇️ Downloading</option>
-            <option value="downloaded">💾 Downloaded</option>
-            <option value="generating">🤖 Generating</option>
-            <option value="ready">✅ Ready</option>
-            <option value="uploading">📤 Uploading</option>
-            <option value="uploaded">🎉 Uploaded</option>
-            <option value="failed">❌ Failed</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" onclick="loadVideos()">🔄 Refresh</button>
+    <!-- ═══════════════════════════════════════ -->
+    <!-- Page 2: Bộ Sưu Tập Video (Gallery) -->
+    <!-- ═══════════════════════════════════════ -->
+    <section class="page-view" id="page-gallery">
+      <div class="section-toolbar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="gallery-search" placeholder="Tìm theo tiêu đề, tác giả, hashtag..." oninput="filterGallery()">
+        </div>
+
+        <div class="toolbar-actions">
+          <div class="view-switch">
+            <button class="view-btn active" id="btn-view-grid" onclick="setViewMode('grid')" title="Dạng lưới">🔲 Lưới</button>
+            <button class="view-btn" id="btn-view-table" onclick="setViewMode('table')" title="Dạng bảng">📋 Bảng</button>
+          </div>
+          <button class="btn btn-secondary" onclick="loadGallery()">🔄 Làm mới</button>
         </div>
       </div>
 
-      <!-- Batch actions bar -->
-      <div id="batch-bar" style="display: none; margin-bottom: 16px; padding: 12px 16px; background: rgba(99, 102, 241, 0.08); border-radius: var(--radius-md); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <span style="font-size: 13px; color: var(--text-secondary);"><strong id="selected-count">0</strong> đã chọn</span>
-        <button class="btn btn-secondary btn-sm" onclick="batchSelected('download')">⬇️ Tải</button>
-        <button class="btn btn-secondary btn-sm" onclick="batchSelected('generate')">🤖 Tạo caption</button>
-        <button class="btn btn-success btn-sm" onclick="batchSelected('upload')">📤 Upload</button>
-        <button class="btn btn-secondary btn-sm" onclick="batchSelected('full-pipeline')">🚀 Full pipeline</button>
-        <button class="btn btn-danger btn-sm" onclick="batchSelected('delete')">🗑️ Xoá</button>
+      <!-- Video Grid View -->
+      <div class="video-grid" id="video-grid">
+        <!-- Dynamic Cards -->
       </div>
 
-      <div id="videos-container">
-        <table class="video-table" id="video-table">
+      <!-- Video Table View -->
+      <div class="video-table-wrapper" id="video-table-wrapper" style="display: none;">
+        <table class="custom-table">
           <thead>
             <tr>
-              <th><input type="checkbox" class="checkbox" id="select-all" onchange="toggleSelectAll()"></th>
               <th>#</th>
-              <th>Video</th>
-              <th>Trạng thái</th>
-              <th>Caption AI</th>
-              <th>YouTube</th>
+              <th>Tiêu đề / Caption</th>
+              <th>Tác giả</th>
+              <th>Dung lượng</th>
+              <th>Thời lượng</th>
+              <th>Thời gian tải</th>
               <th>Thao tác</th>
             </tr>
           </thead>
-          <tbody id="video-tbody">
+          <tbody id="video-table-body">
           </tbody>
         </table>
       </div>
-    </div>
-  </div>
 
-  <!-- ═══════════════════════════════════════ -->
-  <!-- Queue Page -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="page" id="page-queue">
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">⏳ Hàng đợi xử lý</h2>
-        <button class="btn btn-secondary btn-sm" onclick="refreshQueue()">🔄 Refresh</button>
+      <!-- Empty State -->
+      <div class="empty-box" id="gallery-empty" style="display: none;">
+        <div class="empty-icon">📭</div>
+        <h3>Bộ sưu tập đang trống</h3>
+        <p>Bạn chưa tải video nào. Hãy chuyển sang tab "Tải Video Mới" để bắt đầu!</p>
+        <button class="btn btn-primary" onclick="switchPage('add')">➕ Tải video ngay</button>
       </div>
-      <div id="queue-container">
-        <div class="empty-state">
-          <div class="empty-icon">😴</div>
-          <div class="empty-title">Hàng đợi trống</div>
-          <div class="empty-desc">Không có job nào đang chờ xử lý</div>
+    </section>
+
+    <!-- ═══════════════════════════════════════ -->
+    <!-- Page 3: Hàng Đợi & Tiến Trình -->
+    <!-- ═══════════════════════════════════════ -->
+    <section class="page-view" id="page-queue">
+      <div class="glass-card">
+        <div class="card-header">
+          <h2>⏳ Tiến Trình Xử Lý & Tải Video</h2>
+          <button class="btn btn-ghost btn-sm" onclick="loadQueue()">🔄 Làm mới</button>
+        </div>
+
+        <div id="queue-list" class="queue-list">
+          <!-- Dynamic queue list -->
         </div>
       </div>
-    </div>
-  </div>
+    </section>
+
+  </main>
 
   <!-- ═══════════════════════════════════════ -->
-  <!-- Settings Page -->
+  <!-- Video Player Preview Modal -->
   <!-- ═══════════════════════════════════════ -->
-  <div class="page" id="page-settings">
-    <!-- YouTube Connection -->
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">📺 Kết nối YouTube</h2>
+  <div class="modal-backdrop" id="video-modal" onclick="onBackdropClick(event)">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-video-title">🎬 Xem Video</h3>
+        <button class="modal-close-btn" onclick="closeVideoModal()">&times;</button>
       </div>
-      <div id="yt-connection-container">
-        <div id="yt-not-connected" style="text-align: center; padding: 30px;">
-          <div style="font-size: 48px; margin-bottom: 12px;">📺</div>
-          <h3 style="margin-bottom: 8px;">Chưa kết nối YouTube</h3>
-          <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 14px;">
-            Kết nối tài khoản YouTube để bắt đầu upload video.
-          </p>
-          <a href="/auth/youtube/login" class="btn btn-youtube btn-lg">
-            🔗 Kết nối YouTube
-          </a>
+      <div class="modal-body">
+        <div class="video-player-container">
+          <video id="modal-player" controls autoplay loop playsinline></video>
         </div>
-        <div id="yt-connected" style="display: none;">
-          <div class="yt-status-card">
-            <img id="yt-avatar" class="yt-avatar" src="" alt="Channel avatar">
-            <div class="yt-info">
-              <h4 id="yt-channel-name">Channel Name</h4>
-              <p><span id="yt-sub-count">0</span> subscribers · <span id="yt-video-count">0</span> videos</p>
-            </div>
-            <button class="btn btn-danger btn-sm" onclick="disconnectYouTube()" style="margin-left: auto;">
-              Ngắt kết nối
-            </button>
+        <div class="video-meta-details">
+          <div class="meta-row">
+            <span class="meta-label">👤 Tác giả:</span>
+            <span class="meta-val" id="modal-author">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">📦 Dung lượng:</span>
+            <span class="meta-val" id="modal-size">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">⏱️ Thời lượng:</span>
+            <span class="meta-val" id="modal-duration">—</span>
+          </div>
+          <div class="meta-row full">
+            <span class="meta-label">📝 Caption:</span>
+            <p class="meta-desc" id="modal-caption">—</p>
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- API Settings -->
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">🔑 Cấu hình API</h2>
-      </div>
-      <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
-        Các API key được cấu hình trong file <code style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">.env</code>. Khởi động lại server sau khi thay đổi.
-      </p>
-      <div class="settings-grid">
-        <div>
-          <div class="input-label">Gemini API Key</div>
-          <div id="gemini-status" class="config-badge warn" style="margin-top: 4px;">⚠️ Chưa cấu hình</div>
-        </div>
-        <div>
-          <div class="input-label">YouTube OAuth</div>
-          <div id="yt-oauth-status" class="config-badge warn" style="margin-top: 4px;">⚠️ Chưa cấu hình</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Caption Settings -->
-    <div class="section">
-      <div class="section-header">
-        <h2 class="section-title">🤖 Cài đặt Caption AI</h2>
-      </div>
-      <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
-        Tuỳ chỉnh cách AI tạo caption cho video. Thay đổi trong file <code style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">.env</code>.
-      </p>
-      <div class="settings-grid">
-        <div>
-          <div class="input-label">Ngôn ngữ (CAPTION_LANGUAGE)</div>
-          <div style="color: var(--text-primary); font-size: 14px; margin-top: 4px;" id="setting-lang">vi</div>
-        </div>
-        <div>
-          <div class="input-label">Phong cách (CAPTION_STYLE)</div>
-          <div style="color: var(--text-primary); font-size: 14px; margin-top: 4px;" id="setting-style">trending</div>
-        </div>
-        <div>
-          <div class="input-label">Privacy mặc định</div>
-          <div style="color: var(--text-primary); font-size: 14px; margin-top: 4px;" id="setting-privacy">unlisted</div>
-        </div>
-        <div>
-          <div class="input-label">Max upload/ngày</div>
-          <div style="color: var(--text-primary); font-size: 14px; margin-top: 4px;" id="setting-max">5</div>
-        </div>
+      <div class="modal-footer">
+        <a id="modal-download-btn" href="#" download class="btn btn-primary btn-lg">
+          ⬇️ Tải File MP4 Về Máy Tính
+        </a>
+        <button class="btn btn-secondary" onclick="closeVideoModal()">Đóng</button>
       </div>
     </div>
   </div>
-</div>
 
-<!-- ═══════════════════════════════════════ -->
-<!-- Edit Modal -->
-<!-- ═══════════════════════════════════════ -->
-<div class="modal-overlay" id="edit-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 class="modal-title">✏️ Chỉnh sửa Video</h3>
-      <button class="modal-close" onclick="closeModal()">&times;</button>
-    </div>
-    <div id="modal-body">
-      <div class="input-group">
-        <label class="input-label">Tiêu đề (Title)</label>
-        <input type="text" class="input-field" id="edit-title" maxlength="100">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Mô tả (Description)</label>
-        <textarea class="textarea-field" id="edit-description" rows="5"></textarea>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Tags (phân cách bằng dấu phẩy)</label>
-        <input type="text" class="input-field" id="edit-tags">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Danh mục</label>
-        <select class="select-field" id="edit-category">
-          <option>Entertainment</option>
-          <option>Education</option>
-          <option>Science & Technology</option>
-          <option>People & Blogs</option>
-          <option>Comedy</option>
-          <option>Sports</option>
-          <option>Music</option>
-          <option>Film & Animation</option>
-          <option>Howto & Style</option>
-          <option>Gaming</option>
-          <option>News & Politics</option>
-          <option>Pets & Animals</option>
-          <option>Travel & Events</option>
-        </select>
-      </div>
-      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
-        <button class="btn btn-secondary" onclick="closeModal()">Huỷ</button>
-        <button class="btn btn-primary" onclick="saveEdit()" id="save-edit-btn">💾 Lưu</button>
-<!-- ═══════════════════════════════════════ -->
-<!-- Video Preview Modal -->
-<!-- ═══════════════════════════════════════ -->
-<div class="modal-overlay" id="preview-modal">
-  <div class="modal" style="max-width: 600px; text-align: center;">
-    <div class="modal-header">
-      <h3 class="modal-title" id="preview-title">🎬 Xem Video</h3>
-      <button class="modal-close" onclick="closePreview()">&times;</button>
-    </div>
-    <div style="padding: 16px 0;">
-      <video id="preview-video-player" controls autoplay style="max-width: 100%; max-height: 480px; border-radius: var(--radius-md); background: #000; outline: none;"></video>
-      <div id="preview-info" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
-    </div>
-    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;">
-      <a id="preview-download-btn" href="#" download class="btn btn-primary">⬇️ Tải file MP4 về máy</a>
-      <button class="btn btn-secondary" onclick="closePreview()">Đóng</button>
-    </div>
-  </div>
-</div>
+  <!-- Toast Notification Container -->
+  <div class="toast-stack" id="toast-stack"></div>
 
-<!-- Toast container -->
-<div class="toast-container" id="toast-container"></div>
-
-<script src="/js/api-client.js"></script>
-<script src="/js/app.js"></script>
-
+  <!-- Scripts -->
+  <script src="/js/api-client.js"></script>
+  <script src="/js/app.js"></script>
 </body>
 </html>

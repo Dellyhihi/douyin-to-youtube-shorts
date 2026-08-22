@@ -55,27 +55,16 @@ app.use((err, req, res, next) => {
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log('');
-    console.log('  ╔══════════════════════════════════════════════╗');
-    console.log('  ║                                              ║');
-    console.log('  ║   🚀 Douyin → YouTube Shorts Tool            ║');
-    console.log('  ║                                              ║');
-    console.log(`  ║   🌐 http://localhost:${PORT}                    ║`);
-    console.log('  ║                                              ║');
-    console.log('  ╚══════════════════════════════════════════════╝');
+    console.log('  ╔════════════════════════════════════════════════════════╗');
+    console.log('  ║                                                        ║');
+    console.log('  ║   🎬 Douyin Video Downloader (Không Logo / Watermark)  ║');
+    console.log('  ║   📁 Bộ Sưu Tập Video Tải Về                          ║');
+    console.log('  ║                                                        ║');
+    console.log(`  ║   🌐 Giao diện: http://localhost:${PORT}                 ║`);
+    console.log('  ║                                                        ║');
+    console.log('  ╚════════════════════════════════════════════════════════╝');
     console.log('');
-
-    // Check configuration
-    if (!process.env.GEMINI_API_KEY) {
-      logger.warn('GEMINI_API_KEY chưa cấu hình → AI caption sẽ không hoạt động');
-    } else {
-      logger.success('Gemini API Key: ✓ configured');
-    }
-
-    if (!process.env.YOUTUBE_CLIENT_ID) {
-      logger.warn('YouTube OAuth chưa cấu hình → Upload sẽ không hoạt động');
-    } else {
-      logger.success('YouTube OAuth: ✓ configured');
-    }
+    logger.success('Hệ thống sẵn sàng tải video Douyin không watermark!');
   });
 }
 
