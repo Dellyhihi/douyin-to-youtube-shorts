@@ -102,13 +102,13 @@ router.post('/videos/add', async (req, res) => {
   }
 });
 
-// ─── Stream / Download Clean MP4 (Works on both Local & Vercel) ───
+// ─── Stream / Download Clean MP4 (Always fetches fresh CDN URL to avoid expiry) ───
 router.get('/videos/:id/stream', async (req, res) => {
   try {
     const video = Video.getById(req.params.id);
     if (!video) return res.status(404).json({ success: false, error: 'Video not found' });
 
-    // Local file fallback if exists
+    // Local file: serve directly — no expiry issue
     if (video.local_path && fs.existsSync(video.local_path)) {
       if (req.query.download === '1') {
         return res.download(video.local_path);
@@ -116,15 +116,18 @@ router.get('/videos/:id/stream', async (req, res) => {
       return res.sendFile(video.local_path);
     }
 
-    // Direct stream from clean ByteDance CDN
-    let streamUrl = video.video_url;
-    if (!streamUrl) {
+    // ⚡ Always fetch a FRESH CDN URL — ByteDance URLs expire in minutes (dy_q timestamp)
+    // Never reuse video_url stored in DB
+    let streamUrl = null;
+    try {
       const info = await getVideoInfo(video.douyin_url);
       streamUrl = info.hdVideoUrl || info.videoUrl;
+    } catch (fetchErr) {
+      logger.error(`Re-fetch failed for video ${video.id}: ${fetchErr.message}`);
     }
 
     if (!streamUrl) {
-      return res.status(404).json({ success: false, error: 'Không tìm thấy đường dẫn video' });
+      return res.status(404).json({ success: false, error: 'Không thể lấy link video (đã hết hạn hoặc bị xóa)' });
     }
 
     const safeName = (video.title || `douyin_${video.id}`).replace(/[^\w\u4e00-\u9fa5\u00C0-\u1EF9]/g, '_').substring(0, 50);
@@ -151,7 +154,9 @@ router.get('/videos/:id/stream', async (req, res) => {
     videoStream.data.pipe(res);
   } catch (error) {
     logger.error(`Stream error for video ${req.params.id}: ${error.message}`);
-    res.status(500).json({ success: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 
