@@ -1,0 +1,31 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Persistent Data & Media (local storage)
+data/*.json
+data/*.db
+data/logs/
+data/youtube_tokens.json
+downloads/*
+!downloads/.gitkeep
+thumbnails/*
+!thumbnails/.gitkeep
+
+# Vercel & Build Output
+.vercel/
+dist/
+build/
+
+# OS & IDE
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
